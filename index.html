@@ -504,7 +504,8 @@
             tapTimer: null,
             sapperTriggered: false,
             followUpDepth: 0,
-            isStreaming: false, // Flag to control stream interrupt
+            stopFollowUps: false,
+            isStreaming: false, 
 
             load() {
                 const c = localStorage.getItem('f0x_config_v8');
@@ -549,11 +550,7 @@
                     this.initPrivacyToggle();
                     this.initAvatarStealth();
                     
-                    // Init Sapper Pill state
                     document.getElementById('sapper-pill').classList.toggle('hidden', !State.config.sapperMode);
-                    
-                    // Trigger Boot Check for "Unread" Messages
-                    if(State.config.apiKey) setTimeout(() => Chat.bootCheck(), 1000);
                 }, 700);
             },
 
@@ -760,7 +757,6 @@
                 const bubble = document.createElement('div');
                 bubble.className = `msg-bubble ${role === 'user' ? 'msg-user' : 'msg-ai'} ${animate ? 'animate-enter-message' : ''}`;
                 
-                // If this is an animated AI response, start empty for typewriter effect
                 if (animate && role === 'model') {
                     // Start empty, text injected by stream
                 } else {
@@ -787,29 +783,26 @@
                 }
 
                 this.scrollToBottom();
-                return bubble; // Return bubble ref for streaming
+                return bubble;
             },
 
             async streamText(element, text) {
-                State.isStreaming = true; // LOCK
+                State.isStreaming = true; 
                 element.classList.add('msg-stream', 'stream-cursor');
-                element.classList.remove('msg-ai'); // Temporarily remove standard styling for raw look
+                element.classList.remove('msg-ai'); 
                 element.style.borderRadius = "20px 20px 20px 4px";
                 
-                // Split text into "chunks" to simulate data packets rather than just chars
                 const chars = text.split('');
                 
                 for (let i = 0; i < chars.length; i++) {
-                    if (!State.isStreaming) break; // INTERRUPT CHECK
+                    if (!State.isStreaming) break; 
                     element.textContent += chars[i];
                     
-                    // Variable typing speed to feel human/networky
                     const delay = Math.random() < 0.1 ? 30 : (Math.random() < 0.5 ? 5 : 15);
                     if (i % 3 === 0) this.scrollToBottom();
                     await new Promise(r => setTimeout(r, delay));
                 }
 
-                // Compile Phase (only if finished naturally)
                 if (State.isStreaming) {
                     await new Promise(r => setTimeout(r, 150)); 
                     element.classList.remove('msg-stream', 'stream-cursor');
@@ -817,9 +810,8 @@
                     element.innerHTML = `<div class="prose prose-invert prose-sm animate-fade-in">${marked.parse(text)}</div>`;
                     this.scrollToBottom();
                     this.haptic('medium');
-                    State.isStreaming = false; // Release lock
+                    State.isStreaming = false; 
                 } else {
-                    // If interrupted, leave as is (glitch aesthetic) or just clean class
                     element.classList.remove('stream-cursor'); 
                 }
             },
@@ -851,7 +843,6 @@
             },
 
             scrollToBottom() {
-                // Use requestAnimationFrame for smoother scroll during heavy DOM updates
                 requestAnimationFrame(() => {
                      this.els.scroll.scrollTop = this.els.scroll.scrollHeight;
                 });
@@ -936,29 +927,42 @@
                 return `[SYSTEM CONTEXT: It is currently ${day}, ${timeOfDay} (${date.toLocaleTimeString()}). Keep it brief.]`;
             },
 
+            // New Retry Wrapper
+            async fetchWithRetry(url, options, retries = 3) {
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const res = await fetch(url, options);
+                        if (!res.ok) {
+                            if (res.status === 503) throw new Error('Service Unavailable');
+                            if (res.status === 429) throw new Error('Rate Limited');
+                            // If it's a 400 (Bad Request) likely our prompt is malformed or key is invalid, don't retry
+                            if (res.status >= 400 && res.status < 500) return res; 
+                            throw new Error(`HTTP ${res.status}`);
+                        }
+                        return res;
+                    } catch (err) {
+                        if (err.name === 'AbortError') throw err; // Don't retry aborts
+                        if (i === retries - 1) throw err; // Final failure
+                        await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Backoff
+                    }
+                }
+            },
+
             stop() {
-                // Kill Fetch
                 if (this.abortCtrl) this.abortCtrl.abort();
                 this.abortCtrl = null;
-                
-                // Kill Timers
                 this.timers.forEach(clearTimeout);
                 this.timers = [];
-                
-                // Kill UI Animations
                 UI.showTyping(false);
                 Status.setTyping(false);
-                
-                // Kill Text Stream Loop
                 State.isStreaming = false; 
-                State.followUpDepth = 0;
             },
 
             async send() {
                 UI.haptic();
-                // --- INTERRUPT START ---
                 this.stop(); 
-                // --- INTERRUPT END ---
+                State.followUpDepth = 0;
+                State.stopFollowUps = false;
 
                 const input = UI.els.input;
                 const txt = input.value.trim();
@@ -979,27 +983,22 @@
                 }
 
                 State.history.push(msgData);
-                State.followUpDepth = 0;
                 State.save();
                 
                 UI.renderMsg('user', displayText, true, msgData, prevRole);
                 UI.appendStatus(true);
                 Status.setOnline();
 
-                // Store timer IDs so we can cancel them if user types again
                 this.timers.push(setTimeout(() => UI.updateStatusText('Delivered'), 600));
                 this.timers.push(setTimeout(() => this.fetchReply(activeAttachment), 1000));
             },
 
             async fetchReply(attachment) {
                 try {
-                    // Start new abort controller for this specific request
                     this.abortCtrl = new AbortController();
                     const signal = this.abortCtrl.signal;
-
                     UI.updateStatusText('Seen');
                     
-                    // Cancellable delay
                     await new Promise((resolve, reject) => {
                         const id = setTimeout(resolve, 1500 + Math.random() * 1000);
                         this.timers.push(id);
@@ -1016,14 +1015,14 @@
                         parts: [{ text: m.text.startsWith('![Image]') ? m.text.split('\n\n')[1] || "Image Attachment" : m.text }]
                     }));
 
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
+                    const res = await this.fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: context,
                             systemInstruction: { parts: [{ text: sysPrompt }] }
                         }),
-                        signal: signal // Attach signal
+                        signal: signal 
                     });
 
                     const data = await res.json();
@@ -1043,41 +1042,43 @@
                     Status.setOnline();
 
                     if (!signal.aborted) {
-                         this.handleFollowUp();
+                         this.scheduleChainStep();
                     }
 
                 } catch(e) {
-                    if (e.message !== 'Aborted') {
+                    if (e.message !== 'Aborted' && e.name !== 'AbortError') {
                         Status.setTyping(false);
                         UI.showTyping(false);
-                        // Only toast real errors, not aborts
-                        if (e.name !== 'AbortError') UI.toast("Protocol Handshake Failed");
+                        UI.toast("Secure Relay Interrupted"); // Gentler error
                     }
                 }
             },
 
-            async handleFollowUp() {
-                if (State.followUpDepth >= 2) { State.followUpDepth = 0; return; }
-                if(Math.random() < 0.2) return; 
+            scheduleChainStep() {
+                if (State.followUpDepth >= 3 || State.stopFollowUps) return;
+                const delay = 2500 + Math.random() * 3000;
+                const id = setTimeout(() => this.executeChainStep(), delay);
+                this.timers.push(id);
+            },
 
-                // Create a local abort controller for this specific background task
-                // We use the main abortCtrl so Chat.stop() kills this too
-                if (this.abortCtrl) this.abortCtrl.abort(); 
+            async executeChainStep() {
+                if (State.followUpDepth >= 3 || State.stopFollowUps) return;
+
+                // Important: Don't overwrite the main abortCtrl if it's already busy, 
+                // but we need a controller for this specific request that send() can kill.
                 this.abortCtrl = new AbortController();
                 const signal = this.abortCtrl.signal;
 
                 try {
-                    // Cancellable delay
-                    await new Promise((resolve, reject) => {
-                         const id = setTimeout(resolve, 2000 + Math.random() * 2000);
-                         this.timers.push(id);
-                         signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
-                    });
+                    // Show "Online" briefly to simulate reading/thinking
+                    Status.setOnline();
 
                     const context = State.history.slice(-12).map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
-                    const followUpPrompt = `[SYSTEM: Do you have a burning desire to add a quick follow-up text (a joke, a correction, or an afterthought)? If NO, reply exactly with "||NO||". If YES, write ONLY the follow-up text.]`;
                     
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
+                    // Softer Prompt
+                    const followUpPrompt = `[SYSTEM: You just sent a message. In a natural text conversation, would you send a short follow-up now (correction, joke, split thought, or "double text")? Reply ||NO|| or the text.]`;
+                    
+                    const res = await this.fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ contents: [...context, { role: 'user', parts: [{ text: followUpPrompt }] }] }),
@@ -1087,91 +1088,37 @@
                     const data = await res.json();
                     const text = data.candidates[0].content.parts[0].text.trim();
                     
-                    if (!text.includes("||NO||") && text.length > 0) {
-                        Status.setTyping(true);
-                        UI.showTyping(true);
-                        
-                        await new Promise((resolve, reject) => {
-                             const id = setTimeout(resolve, Math.min(text.length * 30, 2000));
-                             this.timers.push(id);
-                             signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
-                        });
-                        
-                        Status.setTyping(false);
-                        UI.showTyping(false);
-                        
-                        const aiMsg = { role: 'model', text: text, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
-                        State.history.push(aiMsg);
-                        State.save();
-                        
-                        const bubble = UI.renderMsg('model', text, true, aiMsg, 'model');
-                        await UI.streamText(bubble, text);
-                        
-                        State.followUpDepth++;
-                        if(!signal.aborted) this.handleFollowUp();
-                    } else {
-                        State.followUpDepth = 0;
+                    if (text.includes("||NO||") || text.length === 0) {
+                        State.stopFollowUps = true; 
+                        return;
                     }
-                } catch (e) {
-                    // Silent fail on abort or error
-                    State.followUpDepth = 0;
-                }
-            },
 
-            async bootCheck() {
-                // Called on login. Checks if AI wants to send an "unread" message.
-                // If history is empty, do nothing.
-                if(State.history.length === 0) return;
-                
-                // If last message was AI, use standard follow up logic
-                const lastMsg = State.history[State.history.length - 1];
-                if(lastMsg.role === 'model') {
-                    this.handleFollowUp();
-                    return;
-                }
+                    Status.setTyping(true);
+                    UI.showTyping(true);
 
-                // If last message was User, and it was recent (< 1 hour), AI might want to reply if it hasn't yet
-                // But normally fetchReply handles that. 
-                // This bootCheck is mostly for if the user closed the app *before* the AI replied.
-                // We'll treat it as a "Let me reply to that thing you said earlier"
-                
-                // Silent check
-                this.abortCtrl = new AbortController();
-                const signal = this.abortCtrl.signal;
-
-                try {
-                    const context = State.history.slice(-12).map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
-                    const bootPrompt = `[SYSTEM: The user just logged back in. The last message was from them. Do you want to reply to it now? Reply ||NO|| if it's too late or irrelevant. Reply with the text if yes.]`;
-                    
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ contents: [...context, { role: 'user', parts: [{ text: bootPrompt }] }] }),
-                        signal: signal
+                    await new Promise((resolve, reject) => {
+                         const typingDuration = Math.min(Math.max(text.length * 20, 1000), 4000); 
+                         const id = setTimeout(resolve, typingDuration);
+                         this.timers.push(id);
+                         signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
                     });
-                     const data = await res.json();
-                     const text = data.candidates[0].content.parts[0].text.trim();
+                    
+                    Status.setTyping(false);
+                    UI.showTyping(false);
+                    
+                    const aiMsg = { role: 'model', text: text, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
+                    State.history.push(aiMsg);
+                    State.save();
+                    
+                    const bubble = UI.renderMsg('model', text, true, aiMsg, 'model'); 
+                    await UI.streamText(bubble, text);
+                    
+                    State.followUpDepth++;
+                    if(!signal.aborted) this.scheduleChainStep();
 
-                     if (!text.includes("||NO||") && text.length > 0) {
-                         // Act like a new message coming in
-                         setTimeout(() => {
-                             Status.setTyping(true);
-                             UI.showTyping(true);
-                         }, 500);
-
-                         setTimeout(async () => {
-                             Status.setTyping(false);
-                             UI.showTyping(false);
-                             const aiMsg = { role: 'model', text: text, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
-                             State.history.push(aiMsg);
-                             State.save();
-                             const bubble = UI.renderMsg('model', text, true, aiMsg, 'model');
-                             await UI.streamText(bubble, text);
-                             UI.toast("New Message Received");
-                         }, 2500);
-                     }
-
-                } catch(e) {}
+                } catch (e) {
+                    if(e.name !== 'AbortError') State.stopFollowUps = true;
+                }
             }
         };
 
@@ -1200,9 +1147,8 @@
                 const elText = document.getElementById('connection-status');
                 if(isTyping) {
                     elText.textContent = "typing...";
-                    // Kept neutral color (gray) by removing color toggle logic
                 } else {
-                    elText.textContent = ""; // Clear explicit text so update() can take over
+                    elText.textContent = ""; 
                     this.update();
                 }
             },
@@ -1211,7 +1157,6 @@
                 const elText = document.getElementById('connection-status');
                 const elDot = document.getElementById('status-dot');
                 
-                // Don't override typing status
                 if(elText.textContent === "typing...") return;
 
                 if (diff < 5) { elText.textContent = "Online"; elDot.style.backgroundColor = "#34C759"; }
