@@ -61,15 +61,20 @@
     </script>
 
     <style>
-        body {
+        /* CRITICAL: iOS PWA Layout Fixes */
+        html, body {
             background-color: #000000;
             color: #ffffff;
-            height: 100vh;
-            height: 100dvh;
+            /* Lock the viewport to prevent whole-page scrolling */
+            position: fixed; 
+            width: 100%;
+            height: 100%;
+            height: 100dvh; /* Dynamic viewport height */
             overflow: hidden;
             -webkit-tap-highlight-color: transparent;
             touch-action: manipulation;
             font-feature-settings: "ss01", "ss02";
+            overscroll-behavior-y: none; /* Prevent pull-to-refresh bounce */
         }
 
         /* Scanline Overlay */
@@ -108,18 +113,16 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         input, textarea, select { font-size: 16px !important; } 
 
-        /* iOS Safe Area Support */
-        .pt-safe-top {
-            padding-top: env(safe-area-inset-top);
-        }
-        .pb-safe-bottom {
-            padding-bottom: env(safe-area-inset-bottom);
-        }
+        /* iOS Safe Area Padding Helpers */
+        .pt-safe { padding-top: env(safe-area-inset-top); }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
         
-        /* Dynamic Offsets for Safe Area */
-        .header-offset-top {
-            padding-top: calc(60px + env(safe-area-inset-top));
-        }
+        /* Calculated Layout Spacing */
+        /* 60px (Header Content) + Safe Area Top */
+        .top-spacing { padding-top: calc(60px + env(safe-area-inset-top)); }
+        /* 65px (Footer Content) + Safe Area Bottom */
+        .bottom-spacing { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+
         .search-offset-top {
             top: calc(60px + env(safe-area-inset-top));
         }
@@ -234,11 +237,11 @@
         </div>
     </div>
 
-    <!-- APP INTERFACE -->
-    <div id="app-interface" class="hidden flex-col h-full bg-background relative z-10">
+    <!-- APP INTERFACE ROOT CONTAINER (Relative for absolute children) -->
+    <div id="app-interface" class="hidden h-full w-full relative">
         
-        <!-- Header: Refactored for Safe Area -->
-        <header class="glass fixed top-0 w-full z-30 pt-safe-top transition-all duration-300" id="main-header">
+        <!-- Header: Fixed Position, handles Safe Area -->
+        <header class="absolute top-0 left-0 right-0 z-30 glass pt-safe transition-all duration-300" id="main-header">
             <!-- Inner container for fixed height content -->
             <div class="h-[60px] w-full flex items-center justify-between px-4">
                 <div class="flex items-center gap-3">
@@ -267,7 +270,7 @@
         </header>
 
         <!-- Search Bar: Uses dynamic top offset -->
-        <div id="search-bar-container" class="hidden fixed left-0 right-0 z-20 bg-black/80 backdrop-blur-md border-b border-white/5 px-4 py-2 animate-fade-in search-offset-top">
+        <div id="search-bar-container" class="hidden absolute left-0 right-0 z-20 bg-black/80 backdrop-blur-md border-b border-white/5 px-4 py-2 animate-fade-in search-offset-top">
             <div class="glass-input rounded-xl flex items-center px-3 py-2">
                 <i class="ph ph-magnifying-glass text-gray-500 mr-2"></i>
                 <input type="text" id="search-input" placeholder="Search history..." class="w-full bg-transparent text-white text-sm focus:outline-none" oninput="UI.handleSearch(this.value)">
@@ -275,9 +278,9 @@
             </div>
         </div>
 
-        <!-- Chat Container: Uses dynamic top padding -->
-        <main id="chat-container" class="flex-1 overflow-y-auto px-4 pb-[80px] scroll-smooth no-scrollbar header-offset-top">
-            <div class="h-4"></div>
+        <!-- Chat Container: Absolutely positioned to fill screen, with dynamic padding -->
+        <main id="chat-container" class="absolute inset-0 z-0 overflow-y-auto px-4 scroll-smooth no-scrollbar top-spacing bottom-spacing">
+            <div class="h-2"></div> <!-- Spacer -->
             <div id="messages-list" class="flex flex-col space-y-2 pb-2"></div>
             
             <!-- Realistic Typing Indicator -->
@@ -291,8 +294,8 @@
             <div id="bottom-anchor" class="h-2"></div>
         </main>
 
-        <!-- Input Bar: Uses bottom safe area padding -->
-        <footer class="fixed bottom-0 w-full z-30 bg-[#161618]/90 backdrop-blur-xl border-t border-white/5 pb-safe-bottom">
+        <!-- Input Bar: Fixed at bottom, handles bottom Safe Area -->
+        <footer class="absolute bottom-0 left-0 right-0 z-30 bg-[#161618]/90 backdrop-blur-xl border-t border-white/5 pb-safe">
             <div class="flex items-end gap-3 px-4 py-3 max-w-2xl mx-auto">
                 <button class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-surfaceHighlight text-gray-400 active:text-white transition-colors">
                     <i class="ph ph-plus text-lg"></i>
@@ -519,8 +522,9 @@
                 this.els.login.style.opacity = '0';
                 setTimeout(() => {
                     this.els.login.classList.add('hidden');
+                    this.els.app.classList.remove('hidden'); // hidden to flex
+                    // Remove flex class and rely on css structure
                     this.els.app.classList.remove('hidden');
-                    this.els.app.classList.add('flex');
                     this.refresh();
                     if(!State.config.apiKey) setTimeout(() => this.toggleSettings(), 600);
                 }, 700);
