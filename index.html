@@ -39,6 +39,7 @@
                         'fade-out': 'fadeOut 0.8s ease-out forwards',
                         'pulse-slow': 'pulseSlow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
                         'cursor-blink': 'cursorBlink 1s step-end infinite',
+                        'mic-pulse': 'micPulse 1.5s ease-in-out infinite',
                     },
                     keyframes: {
                         enterMessage: {
@@ -64,6 +65,11 @@
                         cursorBlink: {
                             '0%, 100%': { opacity: '1' },
                             '50%': { opacity: '0' },
+                        },
+                        micPulse: {
+                            '0%': { boxShadow: '0 0 0 0 rgba(209, 78, 66, 0.4)' },
+                            '70%': { boxShadow: '0 0 0 10px rgba(209, 78, 66, 0)' },
+                            '100%': { boxShadow: '0 0 0 0 rgba(209, 78, 66, 0)' },
                         }
                     }
                 }
@@ -143,6 +149,8 @@
             position: relative;
             align-items: flex-end;
             margin-bottom: 24px; /* Default generous spacing */
+            touch-action: pan-y; /* Allow vertical scroll, handle horizontal in JS */
+            transition: transform 0.1s linear; /* Smooth drag */
         }
         
         /* Message Bubbles */
@@ -170,6 +178,31 @@
             color: #F2F2F7;
             border-radius: 20px 20px 20px 4px;
             margin-right: auto;
+        }
+
+        /* Reply Preview Block */
+        .reply-block {
+            margin-bottom: 6px;
+            padding-left: 8px;
+            border-left: 2px solid rgba(255,255,255,0.3);
+            font-size: 11px;
+            color: rgba(255,255,255,0.7);
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+        }
+        .reply-block .reply-role {
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 9px;
+            opacity: 0.8;
+            margin-bottom: 2px;
+        }
+        .reply-block .reply-content {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
 
         /* Hacker Stream Style */
@@ -258,6 +291,59 @@
             height: 18px; /* Expand to show */
             margin-top: -20px;
             margin-bottom: 12px;
+        }
+
+        /* --- Swipe Reply Icon --- */
+        .swipe-reply-icon {
+            position: absolute;
+            left: -40px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            background: #1C1C1E;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #D14E42;
+            opacity: 0;
+            transition: opacity 0.2s;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* --- Reply Context Bar --- */
+        #reply-bar {
+            background: rgba(28, 28, 30, 0.95);
+            backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #ccc;
+            transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: absolute;
+            bottom: 100%; /* Sits exactly on top of footer */
+            left: 0; right: 0;
+            z-index: 25;
+            display: none; /* JS toggles flex/none */
+        }
+        
+        #reply-bar.active {
+            display: flex;
+            transform: translateY(0);
+        }
+
+        .reply-snippet {
+            border-left: 2px solid #D14E42;
+            padding-left: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 80%;
         }
 
         /* --- Sapper UI --- */
@@ -417,12 +503,34 @@
         </div>
 
         <footer class="absolute bottom-0 left-0 right-0 z-30 bg-[#161618]/95 backdrop-blur-xl border-t border-white/5 pb-safe" id="main-footer">
+            
+            <!-- Reply Context Bar -->
+            <div id="reply-bar">
+                <div class="flex items-center gap-2 overflow-hidden w-full">
+                    <i class="ph-bold ph-arrow-u-up-left text-primary"></i>
+                    <div class="flex flex-col overflow-hidden">
+                        <span class="text-[10px] font-bold text-gray-500 uppercase">Replying to</span>
+                        <span id="reply-text-preview" class="reply-snippet text-[11px] text-white"></span>
+                    </div>
+                </div>
+                <button onclick="UI.cancelReply()" class="w-6 h-6 flex items-center justify-center rounded-full bg-white/10 text-gray-400">
+                    <i class="ph-bold ph-x text-xs"></i>
+                </button>
+            </div>
+
             <div id="attachment-preview" class="hidden px-4 py-2 flex gap-2 overflow-x-auto"></div>
             <div class="flex items-end gap-2 px-4 py-3 max-w-2xl mx-auto">
                 <input type="file" id="media-upload" class="hidden" accept="image/*" onchange="UI.handleFileSelect(this)">
+                
                 <button onclick="document.getElementById('media-upload').click()" class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-surfaceHighlight text-gray-400">
                     <i class="ph-bold ph-plus text-lg"></i>
                 </button>
+
+                <!-- Voice Dictation Button -->
+                <button id="mic-btn" onclick="Voice.toggle()" class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-surfaceHighlight text-gray-400 active:text-primary transition-all">
+                    <i class="ph-bold ph-microphone text-lg"></i>
+                </button>
+
                 <div class="flex-1 min-h-[40px] bg-[#1C1C1E] rounded-[20px] border border-white/5 flex items-center px-4 py-1.5 focus-within:border-primary/50 transition-colors">
                     <textarea id="message-input" rows="1" class="w-full bg-transparent text-white placeholder-[#636366] focus:outline-none resize-none max-h-32 text-[16px] leading-tight py-1" placeholder="f0xnet Message" oninput="UI.autoResize(this)" onkeydown="UI.handleEnter(event)"></textarea>
                 </div>
@@ -506,6 +614,7 @@
             followUpDepth: 0,
             stopFollowUps: false,
             isStreaming: false, 
+            replyingTo: null,
 
             load() {
                 const c = localStorage.getItem('f0x_config_v8');
@@ -528,7 +637,9 @@
                 msgList: document.getElementById('messages-list'),
                 scroll: document.getElementById('drag-wrapper'),
                 input: document.getElementById('message-input'),
-                search: document.getElementById('search-bar-container')
+                search: document.getElementById('search-bar-container'),
+                replyBar: document.getElementById('reply-bar'),
+                replyPreview: document.getElementById('reply-text-preview')
             },
 
             haptic(type = 'light') {
@@ -587,6 +698,74 @@
                 this.els.msgList.classList.toggle('blur-mode');
                 const isBlurred = this.els.msgList.classList.contains('blur-mode');
                 this.toast(isBlurred ? "Privacy Veil Active" : "Privacy Veil Lifted");
+            },
+
+            // --- Swipe to Reply Logic ---
+            initSwipeToReply(row, msgData) {
+                let startX = 0;
+                let currentTranslate = 0;
+                let isSwiping = false;
+                const threshold = 60; // drag distance to trigger
+
+                row.addEventListener('touchstart', (e) => {
+                    // Ignore if interacting with inner elements or scrolling
+                    if(e.target.closest('button')) return;
+                    startX = e.touches[0].clientX;
+                    row.style.transition = 'none'; // remove transition for direct 1:1 movement
+                }, {passive: true});
+
+                row.addEventListener('touchmove', (e) => {
+                    const diff = e.touches[0].clientX - startX;
+                    // Only allow dragging Right (positive)
+                    if (diff > 0 && diff < 150) { 
+                        currentTranslate = diff;
+                        isSwiping = true;
+                        
+                        // Resistance curve
+                        const resisted = Math.pow(diff, 0.85); 
+                        row.style.transform = `translateX(${resisted}px)`;
+
+                        // Show icon opacity based on drag
+                        const icon = row.querySelector('.swipe-reply-icon');
+                        if(icon) icon.style.opacity = Math.min(diff / threshold, 1);
+                    }
+                }, {passive: true});
+
+                row.addEventListener('touchend', (e) => {
+                    row.style.transition = 'transform 0.2s ease-out';
+                    row.style.transform = 'translateX(0)';
+                    const icon = row.querySelector('.swipe-reply-icon');
+                    if(icon) icon.style.opacity = '0';
+
+                    if (isSwiping && currentTranslate > threshold) {
+                        this.haptic('medium');
+                        this.setReplyContext(msgData);
+                    }
+                    
+                    isSwiping = false;
+                    currentTranslate = 0;
+                });
+            },
+
+            setReplyContext(msg) {
+                State.replyingTo = msg;
+                this.els.replyPreview.textContent = msg.text.substring(0, 50) + (msg.text.length > 50 ? '...' : '');
+                this.els.replyBar.classList.add('active');
+                this.els.input.focus();
+            },
+
+            cancelReply() {
+                State.replyingTo = null;
+                this.els.replyBar.classList.remove('active');
+            },
+            
+            scrollToMsg(id) {
+                const el = document.getElementById(`msg-${id}`);
+                if(el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('bg-white/5');
+                    setTimeout(() => el.classList.remove('bg-white/5'), 1000);
+                }
             },
 
             initSapperGesture() {
@@ -751,16 +930,41 @@
 
                 const row = document.createElement('div');
                 row.className = 'msg-row';
-                if(msgObj) row.id = `msg-${msgObj.id}`;
+                if(msgObj) {
+                    row.id = `msg-${msgObj.id}`;
+                    // Only Init Swipe if NOT user role
+                    if(msgObj.role !== 'user') this.initSwipeToReply(row, msgObj); 
+                }
                 if (prevRole === role) row.classList.add('msg-group-continue');
+
+                // Swipe Icon (Only if AI)
+                if(role !== 'user') {
+                    const swipeIcon = document.createElement('div');
+                    swipeIcon.className = 'swipe-reply-icon';
+                    swipeIcon.innerHTML = '<i class="ph-bold ph-arrow-bend-up-left"></i>';
+                    row.appendChild(swipeIcon);
+                }
 
                 const bubble = document.createElement('div');
                 bubble.className = `msg-bubble ${role === 'user' ? 'msg-user' : 'msg-ai'} ${animate ? 'animate-enter-message' : ''}`;
                 
+                // Reply Block Injection
+                let contentHTML = '';
+                if(msgObj && msgObj.replyTo) {
+                    contentHTML += `
+                        <div class="reply-block" onclick="UI.scrollToMsg(${msgObj.replyTo.id})">
+                            <span class="reply-role">${msgObj.replyTo.role === 'user' ? 'You' : State.config.aiName}</span>
+                            <span class="reply-content">${msgObj.replyTo.text.replace(/!\[Image\]\(.*?\)/, '📷 Image')}</span>
+                        </div>
+                    `;
+                }
+
                 if (animate && role === 'model') {
-                    // Start empty, text injected by stream
+                    // Start with reply block if exists, text injected by stream
+                    bubble.innerHTML = contentHTML; 
                 } else {
-                    bubble.innerHTML = `<div class="prose prose-invert prose-sm">${marked.parse(text)}</div>`;
+                    contentHTML += `<div class="prose prose-invert prose-sm">${marked.parse(text)}</div>`;
+                    bubble.innerHTML = contentHTML;
                 }
 
                 const stamp = document.createElement('div');
@@ -786,19 +990,36 @@
                 return bubble;
             },
 
-            async streamText(element, text) {
+            // --- Decryption Effect Stream ---
+            async decryptStream(element, text) {
                 State.isStreaming = true; 
                 element.classList.add('msg-stream', 'stream-cursor');
                 element.classList.remove('msg-ai'); 
                 element.style.borderRadius = "20px 20px 20px 4px";
                 
-                const chars = text.split('');
+                // Preserve Reply Block if it exists
+                const replyBlock = element.querySelector('.reply-block');
+                const replyHTML = replyBlock ? replyBlock.outerHTML : '';
                 
+                const chars = text.split('');
+                const hackerChars = "!@#$%^&*()_+-=[]{}|;':\",./<>?";
+                let currentText = "";
+
+                // Stream loop
                 for (let i = 0; i < chars.length; i++) {
                     if (!State.isStreaming) break; 
-                    element.textContent += chars[i];
                     
-                    const delay = Math.random() < 0.1 ? 30 : (Math.random() < 0.5 ? 5 : 15);
+                    // Add next real char
+                    currentText += chars[i];
+                    
+                    // Decryption Visual: Render clean text + 3 random chars at end
+                    let randomSuffix = "";
+                    for(let k=0; k<3; k++) randomSuffix += hackerChars[Math.floor(Math.random() * hackerChars.length)];
+                    
+                    // Re-inject reply block every frame to keep it visible
+                    element.innerHTML = replyHTML + currentText + randomSuffix;
+                    
+                    const delay = Math.random() < 0.1 ? 30 : (Math.random() < 0.5 ? 10 : 20);
                     if (i % 3 === 0) this.scrollToBottom();
                     await new Promise(r => setTimeout(r, delay));
                 }
@@ -807,7 +1028,8 @@
                     await new Promise(r => setTimeout(r, 150)); 
                     element.classList.remove('msg-stream', 'stream-cursor');
                     element.classList.add('msg-ai');
-                    element.innerHTML = `<div class="prose prose-invert prose-sm animate-fade-in">${marked.parse(text)}</div>`;
+                    // Final Clean Render
+                    element.innerHTML = replyHTML + `<div class="prose prose-invert prose-sm animate-fade-in">${marked.parse(text)}</div>`;
                     this.scrollToBottom();
                     this.haptic('medium');
                     State.isStreaming = false; 
@@ -912,6 +1134,53 @@
             handleEnter(e) { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); Chat.send(); } }
         };
 
+        const Voice = {
+            recognition: null,
+            isRecording: false,
+
+            init() {
+                if ('webkitSpeechRecognition' in window) {
+                    this.recognition = new webkitSpeechRecognition();
+                    this.recognition.continuous = false;
+                    this.recognition.interimResults = false;
+                    this.recognition.lang = 'en-US';
+
+                    this.recognition.onstart = () => {
+                        this.isRecording = true;
+                        document.getElementById('mic-btn').classList.add('text-primary', 'animate-mic-pulse');
+                        UI.toast("Listening...");
+                    };
+
+                    this.recognition.onend = () => {
+                        this.isRecording = false;
+                        document.getElementById('mic-btn').classList.remove('text-primary', 'animate-mic-pulse');
+                    };
+
+                    this.recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript;
+                        const input = document.getElementById('message-input');
+                        input.value += (input.value ? ' ' : '') + transcript;
+                        UI.autoResize(input);
+                    };
+
+                    this.recognition.onerror = (event) => {
+                        UI.toast("Voice Error: " + event.error);
+                        this.isRecording = false;
+                        document.getElementById('mic-btn').classList.remove('text-primary', 'animate-mic-pulse');
+                    };
+                } else {
+                    document.getElementById('mic-btn').style.display = 'none';
+                }
+            },
+
+            toggle() {
+                if (!this.recognition) return UI.toast("Voice not supported");
+                if (this.isRecording) this.recognition.stop();
+                else this.recognition.start();
+                UI.haptic('medium');
+            }
+        };
+
         const Chat = {
             abortCtrl: null,
             timers: [],
@@ -927,7 +1196,6 @@
                 return `[SYSTEM CONTEXT: It is currently ${day}, ${timeOfDay} (${date.toLocaleTimeString()}). Keep it brief.]`;
             },
 
-            // New Retry Wrapper
             async fetchWithRetry(url, options, retries = 3) {
                 for (let i = 0; i < retries; i++) {
                     try {
@@ -935,15 +1203,14 @@
                         if (!res.ok) {
                             if (res.status === 503) throw new Error('Service Unavailable');
                             if (res.status === 429) throw new Error('Rate Limited');
-                            // If it's a 400 (Bad Request) likely our prompt is malformed or key is invalid, don't retry
                             if (res.status >= 400 && res.status < 500) return res; 
                             throw new Error(`HTTP ${res.status}`);
                         }
                         return res;
                     } catch (err) {
-                        if (err.name === 'AbortError') throw err; // Don't retry aborts
-                        if (i === retries - 1) throw err; // Final failure
-                        await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Backoff
+                        if (err.name === 'AbortError') throw err; 
+                        if (i === retries - 1) throw err; 
+                        await new Promise(r => setTimeout(r, 1000 * (i + 1))); 
                     }
                 }
             },
@@ -970,13 +1237,27 @@
                 if(!State.config.apiKey) return UI.toggleSettings();
 
                 input.value = ''; input.style.height = 'auto';
+                
                 let displayText = txt;
                 let activeAttachment = State.attachment;
-                if(activeAttachment) { displayText = `![Image](${activeAttachment.url})\n\n${txt}`; UI.clearAttachment(); }
+                if(activeAttachment) { 
+                    displayText = `![Image](${activeAttachment.url})\n\n${displayText}`; 
+                    UI.clearAttachment(); 
+                }
 
-                const msgData = { role: 'user', text: displayText, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
-                const prevRole = State.history[State.history.length -1]?.role;
+                // Store reply context separately from text
+                const replyContext = State.replyingTo ? { ...State.replyingTo } : null;
+                UI.cancelReply();
+
+                const msgData = { 
+                    role: 'user', 
+                    text: displayText, 
+                    id: Date.now(), 
+                    replyTo: replyContext, // Store Context
+                    expiresAt: State.config.sapperMode ? Date.now() + 60000 : null 
+                };
                 
+                const prevRole = State.history[State.history.length -1]?.role;
                 const lastMsg = State.history[State.history.length - 1];
                 if (!lastMsg || UI.getDateLabel(lastMsg.id) !== UI.getDateLabel(msgData.id)) {
                     UI.renderDateSeparator(UI.getDateLabel(msgData.id));
@@ -1010,10 +1291,19 @@
 
                     const contextHint = this.getContextHint();
                     const sysPrompt = State.config.systemPrompt + " " + contextHint;
-                    const context = State.history.slice(-12).map(m => ({
-                        role: m.role === 'user' ? 'user' : 'model',
-                        parts: [{ text: m.text.startsWith('![Image]') ? m.text.split('\n\n')[1] || "Image Attachment" : m.text }]
-                    }));
+                    
+                    // Inject Reply Context dynamically into Prompt
+                    const context = State.history.slice(-12).map(m => {
+                        let content = m.text;
+                        if(m.text.startsWith('![Image]')) content = m.text.split('\n\n')[1] || "Image Attachment";
+                        
+                        // Prepension logic
+                        if (m.replyTo) {
+                            content = `[Replying to: "${m.replyTo.text}"]\n\n${content}`;
+                        }
+                        
+                        return { role: m.role === 'user' ? 'user' : 'model', parts: [{ text: content }] };
+                    });
 
                     const res = await this.fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
                         method: 'POST',
@@ -1037,7 +1327,7 @@
                     State.save();
                     
                     const bubble = UI.renderMsg('model', reply, true, aiMsg, prevRole);
-                    await UI.streamText(bubble, reply);
+                    await UI.decryptStream(bubble, reply);
                     
                     Status.setOnline();
 
@@ -1049,7 +1339,7 @@
                     if (e.message !== 'Aborted' && e.name !== 'AbortError') {
                         Status.setTyping(false);
                         UI.showTyping(false);
-                        UI.toast("Secure Relay Interrupted"); // Gentler error
+                        UI.toast("Secure Relay Interrupted"); 
                     }
                 }
             },
@@ -1064,18 +1354,14 @@
             async executeChainStep() {
                 if (State.followUpDepth >= 3 || State.stopFollowUps) return;
 
-                // Important: Don't overwrite the main abortCtrl if it's already busy, 
-                // but we need a controller for this specific request that send() can kill.
                 this.abortCtrl = new AbortController();
                 const signal = this.abortCtrl.signal;
 
                 try {
-                    // Show "Online" briefly to simulate reading/thinking
                     Status.setOnline();
 
                     const context = State.history.slice(-12).map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
                     
-                    // Softer Prompt
                     const followUpPrompt = `[SYSTEM: You just sent a message. In a natural text conversation, would you send a short follow-up now (correction, joke, split thought, or "double text")? Reply ||NO|| or the text.]`;
                     
                     const res = await this.fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
@@ -1111,13 +1397,14 @@
                     State.save();
                     
                     const bubble = UI.renderMsg('model', text, true, aiMsg, 'model'); 
-                    await UI.streamText(bubble, text);
+                    await UI.decryptStream(bubble, text);
                     
                     State.followUpDepth++;
                     if(!signal.aborted) this.scheduleChainStep();
 
                 } catch (e) {
-                    if(e.name !== 'AbortError') State.stopFollowUps = true;
+                    // FIX: Check for both AbortError name and 'Aborted' message to prevent race condition locking
+                    if(e.name !== 'AbortError' && e.message !== 'Aborted') State.stopFollowUps = true;
                 }
             }
         };
@@ -1210,7 +1497,7 @@
             }
         };
 
-        document.addEventListener('DOMContentLoaded', () => { State.load(); Boot.run(); });
+        document.addEventListener('DOMContentLoaded', () => { State.load(); Boot.run(); Voice.init(); });
     </script>
 </body>
 </html>
