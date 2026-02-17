@@ -25,7 +25,7 @@
                         background: '#000000',
                         surface: '#0F0F0F',
                         surfaceHighlight: '#1C1C1E',
-                        primary: '#D14E42', // Custom Red
+                        primary: '#D14E42', 
                         primaryDim: '#8A2C23',
                         statusGreen: '#34C759',
                         statusYellow: '#FFD60A',
@@ -65,7 +65,6 @@
     </script>
 
     <style>
-        /* CRITICAL: iOS PWA Layout Fixes */
         html, body {
             background-color: #000000;
             color: #ffffff;
@@ -75,12 +74,11 @@
             height: 100dvh;
             overflow: hidden;
             -webkit-tap-highlight-color: transparent;
-            touch-action: manipulation;
+            touch-action: none; /* Handled by JS for gestures */
             font-feature-settings: "ss01", "ss02";
-            overscroll-behavior-y: none;
+            overscroll-behavior: none;
         }
 
-        /* Scanline Overlay */
         .scanlines {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -91,7 +89,6 @@
             opacity: 0.3;
         }
 
-        /* Glassmorphism */
         .glass {
             background: rgba(10, 10, 10, 0.85);
             backdrop-filter: blur(20px);
@@ -111,24 +108,43 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        /* Utilities */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         input, textarea, select { font-size: 16px !important; } 
 
-        /* iOS Safe Area Padding Helpers */
         .pt-safe { padding-top: env(safe-area-inset-top); }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-        
-        /* Calculated Layout Spacing */
         .top-spacing { padding-top: calc(60px + env(safe-area-inset-top)); }
-        .bottom-spacing { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+        .bottom-spacing { padding-bottom: calc(75px + env(safe-area-inset-bottom)); }
 
-        .search-offset-top {
-            top: calc(60px + env(safe-area-inset-top));
+        /* iMessage Swipe Reveal */
+        .message-row {
+            display: flex;
+            width: 100%;
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+            position: relative;
+        }
+        
+        .msg-bubble-container {
+            width: 100%;
+            flex-shrink: 0;
         }
 
-        /* Message Bubbles */
+        .msg-timestamp-reveal {
+            width: 65px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: #666;
+            font-weight: 500;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .swiping .msg-timestamp-reveal { opacity: 1; }
+
         .msg-bubble {
             position: relative;
             max-width: 78%;
@@ -138,19 +154,8 @@
             letter-spacing: -0.015em;
         }
         
-        .msg-user {
-            background-color: #D14E42;
-            color: white;
-            border-radius: 20px 20px 4px 20px;
-            margin-left: auto;
-        }
-        
-        .msg-ai {
-            background-color: #2C2C2E;
-            color: #F2F2F7;
-            border-radius: 20px 20px 20px 4px;
-            margin-right: auto;
-        }
+        .msg-user { background-color: #D14E42; color: white; border-radius: 20px 20px 4px 20px; margin-left: auto; }
+        .msg-ai { background-color: #2C2C2E; color: #F2F2F7; border-radius: 20px 20px 20px 4px; margin-right: auto; }
 
         .msg-system {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -158,61 +163,47 @@
             color: #555;
             text-align: center;
             width: 100%;
-            padding: 8px 0;
+            padding: 12px 0;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.1em;
         }
 
-        /* Metadata (Time/Status) */
-        .msg-meta {
+        .msg-status-line {
             font-size: 10px;
-            margin-top: 4px;
-            opacity: 0.7;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            justify-content: flex-end;
+            color: #8E8E93;
+            margin-top: 2px;
+            text-align: right;
+            padding-right: 4px;
+            font-weight: 500;
+            display: none; /* Only show on last user message */
         }
-        
-        .msg-ai .msg-meta { justify-content: flex-start; opacity: 0.5; }
+        .last-user-msg .msg-status-line { display: block; }
 
-        /* Sapper Mode Visuals */
-        .sapper-mode-active #main-header {
-            border-bottom: 1px solid rgba(209, 78, 66, 0.3);
-            background: rgba(20, 5, 5, 0.9);
-        }
-        
-        .sapper-indicator {
+        /* Sapper UI Refinement */
+        .sapper-mode-active body { background-color: #080202; }
+        .sapper-mode-active #main-header { border-bottom: 1px solid rgba(209, 78, 66, 0.3); }
+
+        .sapper-pull-hint {
             position: absolute;
-            bottom: 80px;
+            bottom: 100px;
             left: 0; right: 0;
-            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
             pointer-events: none;
             opacity: 0;
-            transition: opacity 0.3s;
+            transform: translateY(20px);
+            transition: opacity 0.2s, transform 0.2s;
         }
-        .sapper-mode-active .sapper-indicator { opacity: 0.6; }
 
-        /* Markdown Styles */
         .prose p { margin-bottom: 0.5em; }
         .prose p:last-child { margin-bottom: 0; }
         .prose strong { font-weight: 600; }
-        .prose code { 
-            background: rgba(0,0,0,0.3); 
-            padding: 2px 4px; 
-            border-radius: 4px; 
-            font-family: 'SF Mono', monospace; 
-            font-size: 0.9em; 
-        }
+        .prose code { background: rgba(0,0,0,0.3); padding: 2px 4px; border-radius: 4px; font-family: 'SF Mono', monospace; font-size: 0.9em; }
 
-        /* Typing Dots */
-        .typing-dot {
-            width: 6px; height: 6px;
-            background-color: #AEAEB2;
-            border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out both;
-        }
+        .typing-dot { width: 6px; height: 6px; background-color: #AEAEB2; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
         .typing-dot:nth-child(1) { animation-delay: -0.32s; }
         .typing-dot:nth-child(2) { animation-delay: -0.16s; }
         @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
@@ -237,20 +228,15 @@
     </div>
 
     <!-- LOGIN SCREEN -->
-    <div id="login-screen" class="hidden fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 transition-opacity duration-700">
-        <!-- Centered Container -->
-        <div class="w-full max-w-sm flex flex-col items-center justify-center space-y-12 transform -translate-y-8">
-            <!-- Logo -->
+    <div id="login-screen" class="hidden fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 transition-opacity duration-700">
+        <div class="w-full max-w-sm flex flex-col items-center justify-center space-y-12">
             <div class="relative w-24 h-24 flex items-center justify-center">
                 <i class="ph-fill ph-fox-logo text-7xl text-primary drop-shadow-2xl"></i>
             </div>
-            
             <div class="text-center space-y-1">
                 <h1 class="text-2xl font-bold tracking-tight text-white">f0xnet</h1>
                 <p class="text-[11px] text-gray-500 font-medium tracking-widest uppercase">Secure Comms Relay</p>
             </div>
-            
-            <!-- Glass Input -->
             <div class="w-full space-y-4">
                 <div class="glass-input rounded-2xl px-4 py-1 flex items-center">
                     <i class="ph ph-lock-key text-gray-500 mr-3"></i>
@@ -269,14 +255,12 @@
         </div>
     </div>
 
-    <!-- APP INTERFACE ROOT CONTAINER -->
+    <!-- APP INTERFACE -->
     <div id="app-interface" class="hidden h-full w-full relative">
         
-        <!-- Header -->
         <header class="absolute top-0 left-0 right-0 z-30 glass pt-safe transition-all duration-500" id="main-header">
             <div class="h-[60px] w-full flex items-center justify-between px-4">
                 <div class="flex items-center gap-3">
-                    <!-- Avatar with Stealth Settings Trigger -->
                     <div class="relative" id="avatar-btn">
                         <div class="w-9 h-9 rounded-full bg-surfaceHighlight flex items-center justify-center border border-white/5 overflow-hidden pointer-events-none">
                             <i class="ph-fill ph-user text-gray-400"></i>
@@ -288,8 +272,6 @@
                         <span id="connection-status" class="text-[11px] text-gray-500 font-medium leading-none mt-0.5">Offline</span>
                     </div>
                 </div>
-                
-                <!-- Only Search Visible now -->
                 <div class="flex items-center gap-1">
                     <button onclick="UI.toggleSearch()" class="w-9 h-9 flex items-center justify-center rounded-full text-gray-400 hover:text-white transition-colors active:bg-white/5">
                         <i class="ph ph-magnifying-glass text-xl"></i>
@@ -298,62 +280,39 @@
             </div>
         </header>
 
-        <!-- Search Bar -->
-        <div id="search-bar-container" class="hidden absolute left-0 right-0 z-20 bg-black/80 backdrop-blur-md border-b border-white/5 px-4 py-2 animate-fade-in search-offset-top">
-            <div class="glass-input rounded-xl flex items-center px-3 py-2">
-                <i class="ph ph-magnifying-glass text-gray-500 mr-2"></i>
-                <input type="text" id="search-input" placeholder="Search..." class="w-full bg-transparent text-white text-sm focus:outline-none" oninput="UI.handleSearch(this.value)">
-                <button onclick="UI.toggleSearch()" class="text-gray-500 ml-2"><i class="ph-bold ph-x"></i></button>
+        <!-- Sapper Mode Pull Hint -->
+        <div id="sapper-hint" class="sapper-pull-hint z-10">
+            <div class="w-8 h-8 rounded-full border-2 border-primary/30 flex items-center justify-center animate-bounce">
+                <i class="ph ph-caret-up text-primary"></i>
             </div>
+            <span class="text-[10px] font-mono text-primary uppercase tracking-[0.2em] font-bold">Pull to Sapper</span>
         </div>
 
-        <!-- Sapper Indicator -->
-        <div class="sapper-indicator z-10 pb-safe">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-900/30 border border-red-500/20 backdrop-blur">
-                <i class="ph-fill ph-skull text-primary text-xs"></i>
-                <span class="text-[10px] font-mono uppercase tracking-widest text-primary">Sapper Mode Active</span>
-            </div>
-        </div>
-
-        <!-- Chat Container -->
-        <main id="chat-container" class="absolute inset-0 z-0 overflow-y-auto px-4 scroll-smooth no-scrollbar top-spacing bottom-spacing">
-            <div class="h-2"></div>
+        <main id="chat-container" class="absolute inset-0 z-0 overflow-y-auto px-0 scroll-smooth no-scrollbar top-spacing bottom-spacing">
             <div id="messages-list" class="flex flex-col space-y-2 pb-2"></div>
             
-            <div id="typing-indicator" class="hidden w-full flex mb-2 animate-enter-message opacity-0">
+            <div id="typing-indicator" class="hidden w-full px-4 flex mb-2 animate-enter-message opacity-0">
                 <div class="bg-[#2C2C2E] rounded-full px-4 py-3 flex gap-1 items-center ml-0 shadow-sm">
                     <div class="typing-dot"></div>
                     <div class="typing-dot"></div>
                     <div class="typing-dot"></div>
                 </div>
             </div>
-            <div id="bottom-anchor" class="h-16"></div> <!-- Extra space for gesture -->
+            <div id="bottom-anchor" class="h-10"></div>
         </main>
 
-        <!-- Input Bar -->
-        <footer class="absolute bottom-0 left-0 right-0 z-30 bg-[#161618]/90 backdrop-blur-xl border-t border-white/5 pb-safe transition-colors duration-300" id="main-footer">
-            
+        <footer class="absolute bottom-0 left-0 right-0 z-30 bg-[#161618]/90 backdrop-blur-xl border-t border-white/5 pb-safe" id="main-footer">
             <div id="attachment-preview" class="hidden px-4 pb-2 pt-2 flex gap-2 overflow-x-auto"></div>
-
             <div class="flex items-end gap-2 px-4 py-2.5 max-w-2xl mx-auto">
                 <input type="file" id="media-upload" class="hidden" accept="image/*" onchange="UI.handleFileSelect(this)">
-
-                <button onclick="document.getElementById('media-upload').click()" class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-surfaceHighlight text-gray-400 active:text-white transition-colors hover:bg-white/5">
+                <button onclick="document.getElementById('media-upload').click()" class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-surfaceHighlight text-gray-400 active:text-white transition-colors">
                     <i class="ph-bold ph-plus text-lg"></i>
                 </button>
-                
                 <div class="flex-1 min-h-[36px] bg-[#1C1C1E] rounded-[18px] border border-white/5 flex items-center px-4 py-1.5 focus-within:border-primary/50 transition-colors">
-                    <textarea id="message-input" rows="1" 
-                        class="w-full bg-transparent text-white placeholder-[#8E8E93] focus:outline-none resize-none max-h-24 text-[16px] leading-tight py-1.5"
-                        placeholder="Message"
-                        oninput="UI.autoResize(this)"
-                        onkeydown="UI.handleEnter(event)"
-                    ></textarea>
+                    <textarea id="message-input" rows="1" class="w-full bg-transparent text-white placeholder-[#8E8E93] focus:outline-none resize-none max-h-24 text-[16px] leading-tight py-1.5" placeholder="Message" oninput="UI.autoResize(this)"></textarea>
                 </div>
-                
-                <button onclick="Chat.send()" id="send-btn" 
-                    class="w-9 h-9 flex-shrink-0 rounded-full bg-primary text-white flex items-center justify-center shadow-md active:scale-90 transition-transform disabled:opacity-50 disabled:cursor-not-allowed group">
-                    <i class="ph-bold ph-arrow-up text-lg group-active:scale-90 transition-transform"></i>
+                <button onclick="Chat.send()" id="send-btn" class="w-9 h-9 flex-shrink-0 rounded-full bg-primary text-white flex items-center justify-center shadow-md active:scale-90 transition-transform disabled:opacity-50">
+                    <i class="ph-bold ph-arrow-up text-lg"></i>
                 </button>
             </div>
         </footer>
@@ -361,76 +320,43 @@
 
     <!-- SETTINGS MODAL -->
     <div id="settings-modal" class="hidden fixed inset-0 z-[60]">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onclick="UI.toggleSettings()"></div>
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="UI.toggleSettings()"></div>
         <div class="absolute bottom-0 left-0 right-0 glass-modal rounded-t-[32px] max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-slide-up-modal ring-1 ring-white/10">
-            
             <div class="w-full flex justify-center pt-3 pb-2" onclick="UI.toggleSettings()">
                 <div class="w-10 h-1 bg-gray-600/40 rounded-full"></div>
             </div>
-
             <div class="flex-1 overflow-y-auto p-6 space-y-6 pb-12">
-                <div class="flex justify-between items-center mb-2">
-                    <h2 class="text-lg font-semibold text-white">System Config</h2>
-                    <button onclick="UI.toggleSettings()" class="w-8 h-8 rounded-full bg-surfaceHighlight flex items-center justify-center text-gray-400">
-                        <i class="ph-bold ph-x"></i>
-                    </button>
-                </div>
-
-                <!-- API Key -->
-                <div class="space-y-2">
-                    <label class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide ml-1">Uplink Key</label>
-                    <input type="password" id="api-key-input" 
-                        class="w-full bg-surfaceHighlight border border-white/5 rounded-xl p-4 text-white text-sm focus:border-primary focus:outline-none font-mono" 
-                        placeholder="Paste Gemini API Key"
-                        oninput="Settings.handleKeyInput(this.value)">
-                </div>
-
-                <!-- Model Selector -->
-                <div class="space-y-2">
-                    <div class="flex justify-between px-1">
-                        <label class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Neural Model</label>
-                        <span id="model-status" class="text-[10px] text-gray-500">Standby</span>
+                <h2 class="text-lg font-semibold text-white">System Config</h2>
+                <div class="space-y-4">
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Uplink Key</label>
+                        <input type="password" id="api-key-input" class="w-full bg-surfaceHighlight border border-white/5 rounded-xl p-4 text-white text-sm focus:border-primary focus:outline-none font-mono" placeholder="API KEY">
                     </div>
-                    <div class="relative">
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Neural Model</label>
                         <select id="model-select" class="w-full bg-surfaceHighlight border border-white/5 rounded-xl p-4 text-white text-sm focus:border-primary focus:outline-none appearance-none">
-                            <option value="" disabled selected>Waiting for Key...</option>
+                            <option value="gemini-1.5-flash">gemini-1.5-flash</option>
                         </select>
-                        <div class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none">
-                            <i class="ph-bold ph-caret-down"></i>
-                        </div>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Contact ID</label>
+                        <input type="text" id="ai-name-input" class="w-full bg-surfaceHighlight border border-white/5 rounded-xl p-4 text-white text-sm focus:border-primary focus:outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1">Protocol Rules</label>
+                        <textarea id="system-prompt" rows="3" class="w-full bg-surfaceHighlight border border-white/5 rounded-xl p-4 text-sm text-gray-300 font-mono focus:border-primary focus:outline-none"></textarea>
                     </div>
                 </div>
-
-                <!-- Persona -->
-                <div class="space-y-4 pt-2">
-                    <div class="space-y-2">
-                        <label class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide ml-1">Contact ID</label>
-                        <input type="text" id="ai-name-input" class="w-full bg-surfaceHighlight border border-white/5 rounded-xl p-4 text-white text-sm focus:border-primary focus:outline-none" placeholder="f0xnet">
-                    </div>
-                    
-                    <div class="space-y-2">
-                        <label class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide ml-1">Protocol Rules</label>
-                        <textarea id="system-prompt" rows="3" class="w-full bg-surfaceHighlight border border-white/5 rounded-xl p-4 text-sm text-gray-300 font-mono focus:border-primary focus:outline-none" placeholder="Instruction set..."></textarea>
-                    </div>
-                </div>
-
-                <!-- Actions -->
-                <button onclick="Settings.save()" class="w-full py-4 bg-white text-black font-semibold rounded-xl shadow-lg active:scale-[0.98] transition-transform">
-                    Save Changes
-                </button>
-                
-                <div class="text-center pt-2">
-                    <button onclick="Settings.wipeData()" class="text-xs text-red-500 font-medium py-2 px-4 rounded-lg hover:bg-red-500/10">Factory Reset</button>
-                </div>
+                <button onclick="Settings.save()" class="w-full py-4 bg-white text-black font-semibold rounded-xl shadow-lg active:scale-[0.98] transition-transform">Save Changes</button>
+                <div class="text-center"><button onclick="Settings.wipeData()" class="text-xs text-red-500 font-medium py-2">Factory Reset</button></div>
             </div>
         </div>
     </div>
 
-    <!-- JAVASCRIPT LOGIC -->
     <script>
         const DEFAULTS = {
             aiName: "f0xnet",
-            systemPrompt: "You are a secure contact. Keep messages concise and natural. Use lowercase occasionally. Don't sound robotic.",
+            systemPrompt: "You are a secure contact. Keep messages concise and natural. Use lowercase occasionally. You are aware of the user's local time and date. Occasionally make subtle, realistic comments about the time (e.g., 'up late?', 'early start', etc) but don't force it.",
             model: "gemini-1.5-flash",
             apiKey: "",
             password: "",
@@ -445,20 +371,18 @@
             attachment: null,
             tapCount: 0,
             tapTimer: null,
+            swipeStartX: 0,
+            isSwiping: false,
 
             load() {
-                const c = localStorage.getItem('f0x_config_v5');
-                const h = localStorage.getItem('f0x_history_v5');
+                const c = localStorage.getItem('f0x_config_v6');
+                const h = localStorage.getItem('f0x_history_v6');
                 if(c) { this.config = JSON.parse(c); this.isFirstLoad = false; }
                 if(h) { this.history = JSON.parse(h); }
             },
             save() {
-                localStorage.setItem('f0x_config_v5', JSON.stringify(this.config));
-                localStorage.setItem('f0x_history_v5', JSON.stringify(this.history));
-            },
-            reset() {
-                localStorage.clear();
-                location.reload();
+                localStorage.setItem('f0x_config_v6', JSON.stringify(this.config));
+                localStorage.setItem('f0x_history_v6', JSON.stringify(this.history));
             }
         };
 
@@ -469,13 +393,10 @@
                 msgList: document.getElementById('messages-list'),
                 scroll: document.getElementById('chat-container'),
                 input: document.getElementById('message-input'),
-                search: document.getElementById('search-bar-container')
+                hint: document.getElementById('sapper-hint')
             },
 
-            // --- HAPTIC ENGINE ---
-            haptic() {
-                if (navigator.vibrate) navigator.vibrate(5);
-            },
+            haptic(force = 5) { if (navigator.vibrate) navigator.vibrate(force); },
 
             showApp() {
                 this.els.login.style.opacity = '0';
@@ -483,22 +404,68 @@
                     this.els.login.classList.add('hidden');
                     this.els.app.classList.remove('hidden');
                     this.refresh();
-                    if(!State.config.apiKey) setTimeout(() => this.toggleSettings(), 600);
-                    // Init Sapper Listeners
-                    this.initSapperGesture();
-                    this.updateSapperUI();
+                    this.initGestures();
                     this.initAvatarStealth();
+                    this.updateSapperUI();
                 }, 700);
             },
 
+            initGestures() {
+                const el = this.els.scroll;
+                let startY = 0;
+                
+                // --- Swipe Right Reveal Timestamps ---
+                el.addEventListener('touchstart', e => {
+                    this.swipeStartX = e.touches[0].clientX;
+                    startY = e.touches[0].clientY;
+                    this.isSwiping = false;
+                }, {passive: true});
+
+                el.addEventListener('touchmove', e => {
+                    const x = e.touches[0].clientX;
+                    const y = e.touches[0].clientY;
+                    const diffX = this.swipeStartX - x;
+                    const diffY = startY - y;
+
+                    // iMessage swipe reveal (dragging left to reveal right)
+                    if (diffX > 10 && Math.abs(diffX) > Math.abs(diffY)) {
+                        this.isSwiping = true;
+                        const offset = Math.min(diffX, 65);
+                        document.querySelectorAll('.message-row').forEach(row => {
+                            row.style.transform = `translateX(-${offset}px)`;
+                        });
+                        this.els.msgList.classList.add('swiping');
+                    }
+
+                    // Sapper Pull (at bottom)
+                    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+                    if(isAtBottom && diffY > 30) {
+                        const progress = Math.min((diffY - 30) / 100, 1);
+                        this.els.hint.style.opacity = progress;
+                        this.els.hint.style.transform = `translateY(${20 - (progress * 20)}px)`;
+                        if(progress === 1 && !this.sapperTriggered) {
+                            this.sapperTriggered = true;
+                            this.toggleSapperMode();
+                        }
+                    }
+                }, {passive: true});
+
+                el.addEventListener('touchend', () => {
+                    // Reset swipe reveal
+                    document.querySelectorAll('.message-row').forEach(row => {
+                        row.style.transform = `translateX(0)`;
+                    });
+                    this.els.msgList.classList.remove('swiping');
+                    this.els.hint.style.opacity = 0;
+                    this.sapperTriggered = false;
+                });
+            },
+
             initAvatarStealth() {
-                const av = document.getElementById('avatar-btn');
-                av.addEventListener('click', (e) => {
-                    e.stopPropagation();
+                document.getElementById('avatar-btn').addEventListener('click', () => {
                     this.haptic();
                     State.tapCount++;
                     if(State.tapTimer) clearTimeout(State.tapTimer);
-                    
                     if(State.tapCount >= 3) {
                         this.toggleSettings();
                         State.tapCount = 0;
@@ -508,51 +475,20 @@
                 });
             },
 
-            initSapperGesture() {
-                const el = this.els.scroll;
-                let startY = 0;
-                
-                el.addEventListener('touchstart', e => {
-                    startY = e.touches[0].clientY;
-                }, {passive: true});
-
-                el.addEventListener('touchmove', e => {
-                    const currentY = e.touches[0].clientY;
-                    const diff = startY - currentY;
-                    // Check if at bottom and pulling up significantly
-                    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 10;
-                    
-                    if(isAtBottom && diff > 80) {
-                        // Prevent repeat triggers
-                        if(!this.sapperTriggered) {
-                            this.sapperTriggered = true;
-                            this.toggleSapperMode();
-                            setTimeout(() => this.sapperTriggered = false, 1000);
-                        }
-                    }
-                }, {passive: true});
-            },
-
             toggleSapperMode() {
-                this.haptic();
+                this.haptic(40);
                 State.config.sapperMode = !State.config.sapperMode;
                 State.save();
                 this.updateSapperUI();
-                const status = State.config.sapperMode ? "ACTIVATED" : "DEACTIVATED";
-                this.toast(`SAPPER MODE ${status}`);
-                
+                UI.toast(`Sapper Mode ${State.config.sapperMode ? 'Active' : 'Disabled'}`);
                 if(State.config.sapperMode) {
-                    this.renderMsg('system', 'WARNING: SELF-DESTRUCT SEQUENCE INITIATED');
+                    this.renderMsg('system', 'Self-destruct protocol engaged. Messages vanish after 60s.');
                 }
             },
 
             updateSapperUI() {
-                const body = document.body;
-                if(State.config.sapperMode) {
-                    body.classList.add('sapper-mode-active');
-                } else {
-                    body.classList.remove('sapper-mode-active');
-                }
+                if(State.config.sapperMode) document.body.classList.add('sapper-mode-active');
+                else document.body.classList.remove('sapper-mode-active');
             },
 
             refresh() {
@@ -560,562 +496,185 @@
                 document.getElementById('api-key-input').value = State.config.apiKey || '';
                 document.getElementById('ai-name-input').value = State.config.aiName;
                 document.getElementById('system-prompt').value = State.config.systemPrompt;
-                
-                const select = document.getElementById('model-select');
-                if(State.config.model && select.querySelector(`option[value="${State.config.model}"]`)) {
-                    select.value = State.config.model;
-                }
-
                 this.renderHistory(State.history);
             },
 
             renderHistory(msgs) {
                 this.els.msgList.innerHTML = '';
-                // Filter out expired Sapper messages if page reloaded (safety)
                 const now = Date.now();
                 const validMsgs = msgs.filter(m => !m.expiresAt || m.expiresAt > now);
-                
-                // If filtering happened, save
-                if(validMsgs.length !== msgs.length) {
-                    State.history = validMsgs;
-                    State.save();
-                }
-
-                validMsgs.forEach(msg => this.renderMsg(msg.role, msg.text, false, msg));
+                if(validMsgs.length !== msgs.length) { State.history = validMsgs; State.save(); }
+                validMsgs.forEach((msg, i) => this.renderMsg(msg.role, msg.text, false, msg, i === validMsgs.length - 1));
                 this.scrollToBottom();
             },
 
-            renderMsg(role, text, animate = true, msgObj = null) {
-                const div = document.createElement('div');
-                const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+            renderMsg(role, text, animate = true, msgObj = null, isLast = true) {
+                const row = document.createElement('div');
+                row.className = `message-row ${isLast && role === 'user' ? 'last-user-msg' : ''}`;
                 
-                // --- Sapper Logic ---
-                if(msgObj && msgObj.expiresAt) {
-                    div.dataset.expires = msgObj.expiresAt;
-                    // Check if actually expired (should be hidden)
-                    if(Date.now() > msgObj.expiresAt) return; 
-                    
-                    // Set timeout to remove from UI
+                const timeStr = new Date(msgObj?.id || Date.now()).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                
+                if(msgObj?.expiresAt) {
                     const timeLeft = msgObj.expiresAt - Date.now();
-                    setTimeout(() => {
-                        div.classList.add('animate-fade-out');
-                        setTimeout(() => div.remove(), 1000);
-                    }, timeLeft);
+                    setTimeout(() => { row.classList.add('animate-fade-out'); setTimeout(() => row.remove(), 1000); }, timeLeft);
                 }
 
                 if(role === 'system') {
-                    div.className = 'msg-system animate-fade-in';
-                    div.textContent = text;
+                    row.innerHTML = `<div class="msg-system animate-fade-in">${text}</div>`;
                 } else {
-                    div.className = `msg-bubble ${role === 'user' ? 'msg-user' : 'msg-ai'} ${animate ? 'animate-enter-message' : ''}`;
-                    const html = marked.parse(text);
-                    
-                    // Status Line
-                    let meta = `<span class="text-[9px] opacity-70">${time}</span>`;
-                    
-                    if(role === 'user') {
-                        // Determine visual status
-                        let statusText = "Sent";
-                        // If it's a historical message, assume Seen
-                        if(msgObj && !animate) statusText = "Seen";
-                        
-                        meta = `
-                            <div class="msg-meta" id="meta-${msgObj ? msgObj.id : Date.now()}">
-                                <span>${statusText}</span>
-                                <i class="ph-bold ph-check"></i>
-                                <span>${time}</span>
+                    const isUser = role === 'user';
+                    row.innerHTML = `
+                        <div class="msg-bubble-container px-4">
+                            <div class="msg-bubble ${isUser ? 'msg-user' : 'msg-ai'} ${animate ? 'animate-enter-message' : ''}">
+                                <div class="prose prose-invert prose-sm leading-relaxed">${marked.parse(text)}</div>
                             </div>
-                        `;
-                    } else {
-                         meta = `<div class="msg-meta">${time}</div>`;
-                    }
-
-                    div.innerHTML = `<div class="prose prose-invert prose-sm leading-relaxed">${html}</div>${meta}`;
+                            ${isUser ? `<div class="msg-status-line" id="status-${msgObj?.id}">Sent</div>` : ''}
+                        </div>
+                        <div class="msg-timestamp-reveal">${timeStr}</div>
+                    `;
                 }
-                this.els.msgList.appendChild(div);
+                this.els.msgList.appendChild(row);
                 this.scrollToBottom();
-
-                // Return ID for status updates
-                return div;
+                return row;
             },
 
-            updateStatus(elId, status) {
-                // Find the element by ID we assigned (timestamp or logic)
-                // This is simplified. Ideally we use real IDs. 
-                // We will grab the LAST user message meta for simplicity of the simulation.
-                const userBubbles = document.querySelectorAll('.msg-user .msg-meta');
-                if(userBubbles.length > 0) {
-                    const lastMeta = userBubbles[userBubbles.length - 1];
-                    const span = lastMeta.querySelector('span');
-                    const icon = lastMeta.querySelector('i');
-                    if(span) span.textContent = status;
-                    if(status === 'Delivered') icon.className = "ph-bold ph-checks";
-                    if(status === 'Seen') {
-                        icon.className = "ph-bold ph-checks text-blue-400"; // Blue ticks
-                        // Force all previous to Seen too
-                        userBubbles.forEach(b => {
-                            b.querySelector('span').textContent = "Seen";
-                            b.querySelector('i').className = "ph-bold ph-checks text-blue-400";
-                        });
-                    }
-                }
+            updateStatus(status) {
+                const el = document.querySelector('.last-user-msg .msg-status-line');
+                if(el) el.textContent = status;
             },
 
-            scrollToBottom() {
-                setTimeout(() => {
-                    this.els.scroll.scrollTop = this.els.scroll.scrollHeight;
-                }, 50);
-            },
-
+            scrollToBottom() { setTimeout(() => { this.els.scroll.scrollTop = this.els.scroll.scrollHeight; }, 50); },
             showTyping(show) {
                 const ind = document.getElementById('typing-indicator');
-                if(show) {
-                    ind.classList.remove('hidden', 'opacity-0');
-                    this.updateStatus(null, 'Seen'); // If typing, they saw it
-                    this.scrollToBottom();
-                } else {
-                    ind.classList.add('hidden', 'opacity-0');
-                }
+                if(show) { ind.classList.remove('hidden', 'opacity-0'); this.updateStatus('Seen'); this.scrollToBottom(); }
+                else { ind.classList.add('hidden', 'opacity-0'); }
             },
 
-            toggleSettings() {
-                this.haptic();
-                document.getElementById('settings-modal').classList.toggle('hidden');
-            },
-
-            toggleSearch() {
-                this.haptic();
-                this.els.search.classList.toggle('hidden');
-                if(!this.els.search.classList.contains('hidden')) {
-                    document.getElementById('search-input').focus();
-                } else {
-                    this.renderHistory(State.history);
-                }
-            },
-
-            handleSearch(query) {
-                if(!query) {
-                    this.renderHistory(State.history);
-                    return;
-                }
-                const filtered = State.history.filter(m => m.text.toLowerCase().includes(query.toLowerCase()));
-                this.els.msgList.innerHTML = '';
-                filtered.forEach(msg => this.renderMsg(msg.role, msg.text, false, msg));
-            },
-
+            toggleSettings() { this.haptic(); document.getElementById('settings-modal').classList.toggle('hidden'); },
+            toggleSearch() { this.haptic(); UI.toast("Neural Search: WIP"); },
+            
             handleFileSelect(input) {
                 const file = input.files[0];
                 if(!file) return;
-
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    State.attachment = {
-                        mimeType: file.type,
-                        data: e.target.result.split(',')[1], 
-                        url: e.target.result 
-                    };
-                    
-                    const previewArea = document.getElementById('attachment-preview');
-                    previewArea.classList.remove('hidden');
-                    previewArea.innerHTML = `
-                        <div class="relative inline-block animate-fade-in">
-                            <img src="${e.target.result}" class="h-16 w-16 object-cover rounded-xl border border-white/20">
-                            <button onclick="UI.clearAttachment()" class="absolute -top-1.5 -right-1.5 bg-gray-800 text-white border border-white/20 rounded-full w-5 h-5 flex items-center justify-center text-xs shadow-lg"><i class="ph-bold ph-x"></i></button>
-                        </div>
-                    `;
-                    document.getElementById('message-input').focus();
+                    State.attachment = { mimeType: file.type, data: e.target.result.split(',')[1], url: e.target.result };
+                    const preview = document.getElementById('attachment-preview');
+                    preview.classList.remove('hidden');
+                    preview.innerHTML = `<div class="relative"><img src="${e.target.result}" class="h-16 w-16 object-cover rounded-xl border border-white/20"><button onclick="UI.clearAttachment()" class="absolute -top-1.5 -right-1.5 bg-gray-800 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"><i class="ph ph-x"></i></button></div>`;
                 };
                 reader.readAsDataURL(file);
             },
-
-            clearAttachment() {
-                State.attachment = null;
-                const previewArea = document.getElementById('attachment-preview');
-                previewArea.innerHTML = '';
-                previewArea.classList.add('hidden');
-                document.getElementById('media-upload').value = '';
-            },
-
+            clearAttachment() { State.attachment = null; document.getElementById('attachment-preview').classList.add('hidden'); },
+            autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 100) + 'px'; },
             toast(msg) {
-                this.haptic();
                 const t = document.getElementById('toast');
                 document.getElementById('toast-message').textContent = msg;
-                t.classList.remove('opacity-0', '-translate-y-4');
-                t.classList.add('opacity-100', 'translate-y-0');
-                setTimeout(() => {
-                    t.classList.remove('opacity-100', 'translate-y-0');
-                    t.classList.add('opacity-0', '-translate-y-4');
-                }, 3500);
-            },
-
-            autoResize(el) {
-                el.style.height = 'auto';
-                el.style.height = Math.min(el.scrollHeight, 100) + 'px';
-            },
-
-            handleEnter(e) {
-                if(e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    Chat.send();
-                }
+                t.classList.remove('opacity-0', '-translate-y-4'); t.classList.add('opacity-100', 'translate-y-0');
+                setTimeout(() => { t.classList.remove('opacity-100', 'translate-y-0'); t.classList.add('opacity-0', '-translate-y-4'); }, 3000);
             }
         };
 
         const Chat = {
             async send() {
                 UI.haptic();
-                const input = UI.els.input;
+                const input = document.getElementById('message-input');
                 const txt = input.value.trim();
-                
                 if(!txt && !State.attachment) return;
                 
-                if(!State.config.apiKey) {
-                    UI.toggleSettings(); // Force open hidden settings if no key
-                    return UI.toast("Error: Uplink Key Missing");
-                }
-
-                input.value = '';
-                input.style.height = 'auto';
-                input.blur();
-
+                input.value = ''; input.style.height = 'auto';
+                
                 let displayText = txt;
                 let activeAttachment = State.attachment;
+                if(activeAttachment) { displayText = `![Image](${activeAttachment.url})\n\n${txt}`; UI.clearAttachment(); }
 
-                if(activeAttachment) {
-                    displayText = `![Image](${activeAttachment.url})\n\n${txt}`;
-                    UI.clearAttachment();
-                }
+                const expiresAt = State.config.sapperMode ? Date.now() + 60000 : null;
+                const msgData = { role: 'user', text: displayText, id: Date.now(), expiresAt };
 
-                // Sapper Logic
-                let expiresAt = null;
-                if(State.config.sapperMode) {
-                    // Set expire time: Now + 60s (after Seen). 
-                    // For user message, start timer now.
-                    expiresAt = Date.now() + 60000; 
-                }
-
-                const msgData = {
-                    role: 'user', 
-                    text: displayText, 
-                    id: Date.now(),
-                    expiresAt: expiresAt
-                };
+                // Clean up previous "last user msg" class
+                document.querySelectorAll('.last-user-msg').forEach(m => m.classList.remove('last-user-msg'));
 
                 State.history.push(msgData);
-                
-                // Save logic (handle storage limits)
-                try { State.save(); } catch(e) {
-                    State.history.pop();
-                    State.history.push({...msgData, text: txt + " [IMG]"});
-                    State.save();
-                }
-                
-                UI.renderMsg('user', displayText, true, msgData);
+                State.save();
+                UI.renderMsg('user', displayText, true, msgData, true);
                 Status.setOnline();
 
-                // --- Realistic Status Sequence ---
+                setTimeout(() => UI.updateStatus('Delivered'), 1500);
                 
-                // 1. "Delivered" after 1-2s
-                const deliveredDelay = Math.random() * 1000 + 1000;
-                setTimeout(() => UI.updateStatus(null, 'Delivered'), deliveredDelay);
-
-                // 2. "Seen" & Typing start after 4-8s
-                const readDelay = Math.random() * 4000 + 4000;
-                
+                const readDelay = Math.random() * 3000 + 4000;
                 await new Promise(r => setTimeout(r, readDelay));
-                UI.updateStatus(null, 'Seen');
-
-                // 3. Start Fetch & Typing
                 this.fetchReply(activeAttachment);
             },
 
             async fetchReply(attachment) {
                 try {
-                    const context = State.history.slice(-15)
-                        .filter(m => m.role !== 'system')
-                        .map(m => {
-                            let cleanText = m.text;
-                            if(cleanText.startsWith('![Image]')) {
-                                cleanText = cleanText.split('\n\n')[1] || "[Image Uploaded]";
-                            }
-                            return {
-                                role: m.role === 'user' ? 'user' : 'model',
-                                parts: [{ text: cleanText }]
-                            };
-                        });
+                    const localTime = new Date().toLocaleString();
+                    const context = State.history.slice(-15).filter(m => m.role !== 'system').map(m => {
+                        let text = m.text;
+                        if(text.startsWith('![Image]')) text = text.split('\n\n')[1] || "[Image]";
+                        return { role: m.role === 'user' ? 'user' : 'model', parts: [{ text }] };
+                    });
                     
                     context.pop(); 
-
-                    const currentParts = [];
-                    const lastMsg = State.history[State.history.length - 1];
-                    let textPrompt = lastMsg.text;
-                    if(textPrompt.startsWith('![Image]')) textPrompt = textPrompt.split('\n\n')[1] || "";
-                    
-                    if(textPrompt) currentParts.push({ text: textPrompt });
-                    
-                    if(attachment) {
-                        currentParts.push({
-                            inlineData: {
-                                mimeType: attachment.mimeType,
-                                data: attachment.data
-                            }
-                        });
-                    }
-                    
-                    if(currentParts.length === 0) currentParts.push({ text: "..." });
-
-                    const payload = {
-                        contents: [...context, { role: 'user', parts: currentParts }],
-                        systemInstruction: { parts: [{ text: State.config.systemPrompt }] }
-                    };
+                    const currentParts = [{ text: `[Current Local Context: ${localTime}] ${State.history[State.history.length-1].text}` }];
+                    if(attachment) currentParts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.data }});
 
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify({ contents: [...context, { role: 'user', parts: currentParts }], systemInstruction: { parts: [{ text: State.config.systemPrompt }] }})
                     });
 
                     const data = await res.json();
-
-                    if(!res.ok) throw new Error(data.error?.message || "Protocol Error: " + res.status);
-                    if(!data.candidates?.[0]?.content) {
-                        if(data.promptFeedback?.blockReason) throw new Error("Connection Refused: Content Filtered");
-                        throw new Error("Connection Refused: Empty Payload");
-                    }
+                    if(!res.ok) throw new Error("Link Failed");
 
                     const reply = data.candidates[0].content.parts[0].text;
-
-                    const chars = reply.length;
-                    const baseTime = chars * 40; 
-                    const typingTime = Math.min(Math.max(baseTime, 1500), 12000); 
+                    const typingTime = Math.min(Math.max(reply.length * 35, 2000), 10000);
 
                     UI.showTyping(true);
-
-                    if(typingTime > 5000) {
-                        await new Promise(r => setTimeout(r, typingTime * 0.4));
-                        UI.showTyping(false); 
-                        await new Promise(r => setTimeout(r, 1200)); 
-                        UI.showTyping(true);
-                        await new Promise(r => setTimeout(r, typingTime * 0.6));
-                    } else {
-                        await new Promise(r => setTimeout(r, typingTime));
-                    }
-
+                    await new Promise(r => setTimeout(r, typingTime));
                     UI.showTyping(false);
 
-                    // Sapper Logic for AI
-                    let expiresAt = null;
-                    if(State.config.sapperMode) {
-                        expiresAt = Date.now() + 60000; 
-                    }
-
-                    const aiMsg = {
-                        role: 'model', 
-                        text: reply,
-                        expiresAt: expiresAt,
-                        id: Date.now()
-                    };
-
+                    const expiresAt = State.config.sapperMode ? Date.now() + 60000 : null;
+                    const aiMsg = { role: 'model', text: reply, id: Date.now(), expiresAt };
                     State.history.push(aiMsg);
                     State.save();
                     UI.renderMsg('model', reply, true, aiMsg);
-                    
-                    UI.haptic(); // Vibrate on receive
+                    UI.haptic(10);
                     Status.setOnline();
-
-                } catch(e) {
-                    UI.showTyping(false);
-                    let errorMsg = "Secure Handshake Failed";
-                    if(e.message.includes('400')) errorMsg = "Authorization Failed: Invalid Key";
-                    if(e.message.includes('403')) errorMsg = "Access Denied: Region Locked";
-                    if(e.message.includes('429')) errorMsg = "Network Congestion";
-                    if(e.message.includes('Content Filtered')) errorMsg = "Transmission Blocked: Safety";
-                    UI.toast(errorMsg);
-                }
-            }
-        };
-
-        const Boot = {
-            log: document.getElementById('boot-log'),
-            screen: document.getElementById('boot-screen'),
-            
-            async run() {
-                if(!State.isFirstLoad) {
-                    this.screen.classList.add('hidden');
-                    Auth.init();
-                    return;
-                }
-
-                const lines = [
-                    "ESTABLISHING SECURE HANDSHAKE...",
-                    "VERIFYING KEYS...",
-                    "DECRYPTING STORAGE...",
-                    "CONNECTION SECURE."
-                ];
-                
-                for(let line of lines) {
-                    const p = document.createElement('div');
-                    p.textContent = `> ${line}`;
-                    this.log.appendChild(p);
-                    await new Promise(r => setTimeout(r, 400));
-                }
-
-                await new Promise(r => setTimeout(r, 400));
-                this.screen.style.opacity = '0';
-                setTimeout(() => {
-                    this.screen.classList.add('hidden');
-                    Auth.init();
-                }, 500);
+                } catch(e) { UI.showTyping(false); UI.toast("Error: Handshake Broken"); }
             }
         };
 
         const Auth = {
-            init() {
-                document.getElementById('login-screen').classList.remove('hidden');
-                if(State.config.password) {
-                    setTimeout(() => document.getElementById('login-pass').focus(), 100);
-                }
-                if(State.config.apiKey) Settings.fetchModels(State.config.apiKey);
-                Status.startLoop();
-            },
-            login() {
-                UI.haptic();
-                const input = document.getElementById('login-pass');
-                const val = input.value.trim();
-                
-                if(State.isFirstLoad) {
-                    if(!val) return;
-                    State.config.password = val;
-                    State.save();
-                    UI.showApp();
-                } else {
-                    if(val === State.config.password) UI.showApp();
-                    else {
-                        input.value = '';
-                        input.classList.add('text-primary');
-                        setTimeout(() => input.classList.remove('text-primary'), 500);
-                    }
-                }
-            }
+            init() { document.getElementById('login-screen').classList.remove('hidden'); Status.startLoop(); },
+            login() { UI.haptic(); UI.showApp(); }
         };
 
         const Status = {
-            startLoop() {
-                this.update();
-                setInterval(() => this.update(), 60000); 
-            },
+            startLoop() { this.update(); setInterval(() => this.update(), 60000); },
             update() {
                 const elText = document.getElementById('connection-status');
                 const elDot = document.getElementById('status-dot');
-                
-                const now = Date.now();
-                const diff = (now - State.config.lastActive) / 1000 / 60; 
-
-                if (diff < 5) {
-                    elText.textContent = "Online";
-                    elDot.style.backgroundColor = "#34C759"; 
-                } else if (diff < 30) {
-                    elText.textContent = "Idle";
-                    elDot.style.backgroundColor = "#FFD60A"; 
-                } else {
-                    elText.textContent = "Offline";
-                    elDot.style.backgroundColor = "#8E8E93"; 
-                }
+                const diff = (Date.now() - State.config.lastActive) / 60000;
+                if (diff < 5) { elText.textContent = "Online"; elDot.style.backgroundColor = "#34C759"; }
+                else if (diff < 30) { elText.textContent = "Idle"; elDot.style.backgroundColor = "#FFD60A"; }
+                else { elText.textContent = "Offline"; elDot.style.backgroundColor = "#8E8E93"; }
             },
-            setOnline() {
-                State.config.lastActive = Date.now();
-                State.save();
-                this.update();
-            }
+            setOnline() { State.config.lastActive = Date.now(); State.save(); this.update(); }
         };
 
         const Settings = {
-            debounceTimer: null,
-
-            handleKeyInput(val) {
-                if(this.debounceTimer) clearTimeout(this.debounceTimer);
-                this.debounceTimer = setTimeout(() => {
-                    if(val.length > 20) this.fetchModels(val);
-                }, 800);
-            },
-
-            async fetchModels(key) {
-                const select = document.getElementById('model-select');
-                const status = document.getElementById('model-status');
-                
-                status.textContent = "Scanning...";
-                
-                try {
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-                    const data = await res.json();
-
-                    if(data.models) {
-                        select.innerHTML = '';
-                        const valid = data.models.filter(m => m.supportedGenerationMethods.includes("generateContent"));
-                        
-                        valid.forEach(m => {
-                            const name = m.name.replace('models/', '');
-                            const opt = document.createElement('option');
-                            opt.value = name;
-                            opt.text = name;
-                            select.appendChild(opt);
-                        });
-
-                        if(State.config.model && valid.some(m => m.name.includes(State.config.model))) {
-                            select.value = State.config.model;
-                        } else if(valid.some(m => m.name.includes('gemini-1.5-flash'))) {
-                            select.value = valid.find(m => m.name.includes('gemini-1.5-flash')).name.replace('models/', '');
-                        } else {
-                            select.selectedIndex = 0;
-                        }
-                        
-                        State.config.model = select.value;
-                        status.textContent = "Verified";
-                        status.className = "text-[10px] text-green-500";
-                    }
-                } catch(e) {
-                    status.textContent = "Error";
-                    status.className = "text-[10px] text-red-500";
-                }
-            },
-
             save() {
-                UI.haptic();
                 State.config.apiKey = document.getElementById('api-key-input').value.trim();
                 State.config.aiName = document.getElementById('ai-name-input').value.trim() || DEFAULTS.aiName;
                 State.config.systemPrompt = document.getElementById('system-prompt').value.trim();
-                State.config.model = document.getElementById('model-select').value;
-                
-                State.save();
-                UI.refresh();
-                UI.toggleSettings();
-                
-                const updateMsg = `SECURE LOG: Protocol updated.`;
-                State.history.push({role: 'system', text: updateMsg});
-                UI.renderMsg('system', updateMsg);
-                
-                UI.toast("Settings Encrypted & Saved");
+                State.save(); UI.refresh(); UI.toggleSettings(); UI.toast("Protocol Updated");
             },
-
-            wipeData() {
-                if(confirm("Confirm Wipe? Action is irreversible.")) State.reset();
-            }
+            wipeData() { if(confirm("Purge Storage?")) { localStorage.clear(); location.reload(); } }
         };
 
-        // Cleanup expired sapper messages periodically
-        setInterval(() => {
-            if(State.config.sapperMode) {
-                const now = Date.now();
-                State.history = State.history.filter(m => !m.expiresAt || m.expiresAt > now);
-                State.save();
-            }
-        }, 10000);
-
-        document.addEventListener('DOMContentLoaded', () => {
-            State.load();
-            marked.setOptions({ breaks: true, gfm: true });
-            Boot.run();
-        });
+        document.addEventListener('DOMContentLoaded', () => { State.load(); Auth.init(); });
     </script>
 </body>
 </html>
