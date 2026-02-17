@@ -108,6 +108,22 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         input, textarea, select { font-size: 16px !important; } 
 
+        /* iOS Safe Area Support */
+        .pt-safe-top {
+            padding-top: env(safe-area-inset-top);
+        }
+        .pb-safe-bottom {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        
+        /* Dynamic Offsets for Safe Area */
+        .header-offset-top {
+            padding-top: calc(60px + env(safe-area-inset-top));
+        }
+        .search-offset-top {
+            top: calc(60px + env(safe-area-inset-top));
+        }
+
         /* Message Bubbles */
         .msg-bubble {
             position: relative;
@@ -221,34 +237,37 @@
     <!-- APP INTERFACE -->
     <div id="app-interface" class="hidden flex-col h-full bg-background relative z-10">
         
-        <!-- Header -->
-        <header class="glass h-[60px] flex items-center justify-between px-4 fixed top-0 w-full z-30 pt-safe-top transition-all duration-300" id="main-header">
-            <div class="flex items-center gap-3">
-                <div class="relative">
-                    <div class="w-9 h-9 rounded-full bg-surfaceHighlight flex items-center justify-center border border-white/5 overflow-hidden">
-                        <i class="ph-fill ph-user text-gray-400"></i>
+        <!-- Header: Refactored for Safe Area -->
+        <header class="glass fixed top-0 w-full z-30 pt-safe-top transition-all duration-300" id="main-header">
+            <!-- Inner container for fixed height content -->
+            <div class="h-[60px] w-full flex items-center justify-between px-4">
+                <div class="flex items-center gap-3">
+                    <div class="relative">
+                        <div class="w-9 h-9 rounded-full bg-surfaceHighlight flex items-center justify-center border border-white/5 overflow-hidden">
+                            <i class="ph-fill ph-user text-gray-400"></i>
+                        </div>
+                        <!-- Status Dot -->
+                        <div id="status-dot" class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-statusGray border-2 border-[#101010]"></div>
                     </div>
-                    <!-- Status Dot -->
-                    <div id="status-dot" class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-statusGray border-2 border-[#101010]"></div>
+                    <div class="flex flex-col justify-center">
+                        <span id="contact-name" class="text-white font-semibold text-[15px] leading-tight tracking-tight">f0xnet</span>
+                        <span id="connection-status" class="text-[11px] text-gray-500 font-medium leading-none mt-0.5">Offline</span>
+                    </div>
                 </div>
-                <div class="flex flex-col justify-center">
-                    <span id="contact-name" class="text-white font-semibold text-[15px] leading-tight tracking-tight">f0xnet</span>
-                    <span id="connection-status" class="text-[11px] text-gray-500 font-medium leading-none mt-0.5">Offline</span>
+                
+                <div class="flex items-center gap-1">
+                    <button onclick="UI.toggleSearch()" class="w-9 h-9 flex items-center justify-center rounded-full text-gray-400 hover:text-white transition-colors active:bg-white/5">
+                        <i class="ph ph-magnifying-glass text-xl"></i>
+                    </button>
+                    <button onclick="UI.toggleSettings()" class="w-9 h-9 flex items-center justify-center rounded-full text-gray-400 hover:text-white transition-colors active:bg-white/5">
+                        <i class="ph-fill ph-list text-xl"></i>
+                    </button>
                 </div>
-            </div>
-            
-            <div class="flex items-center gap-1">
-                <button onclick="UI.toggleSearch()" class="w-9 h-9 flex items-center justify-center rounded-full text-gray-400 hover:text-white transition-colors active:bg-white/5">
-                    <i class="ph ph-magnifying-glass text-xl"></i>
-                </button>
-                <button onclick="UI.toggleSettings()" class="w-9 h-9 flex items-center justify-center rounded-full text-gray-400 hover:text-white transition-colors active:bg-white/5">
-                    <i class="ph-fill ph-list text-xl"></i>
-                </button>
             </div>
         </header>
 
-        <!-- Search Bar (Hidden by default) -->
-        <div id="search-bar-container" class="hidden fixed top-[60px] left-0 right-0 z-20 bg-black/80 backdrop-blur-md border-b border-white/5 px-4 py-2 pt-safe-top animate-fade-in">
+        <!-- Search Bar: Uses dynamic top offset -->
+        <div id="search-bar-container" class="hidden fixed left-0 right-0 z-20 bg-black/80 backdrop-blur-md border-b border-white/5 px-4 py-2 animate-fade-in search-offset-top">
             <div class="glass-input rounded-xl flex items-center px-3 py-2">
                 <i class="ph ph-magnifying-glass text-gray-500 mr-2"></i>
                 <input type="text" id="search-input" placeholder="Search history..." class="w-full bg-transparent text-white text-sm focus:outline-none" oninput="UI.handleSearch(this.value)">
@@ -256,8 +275,8 @@
             </div>
         </div>
 
-        <!-- Chat Container -->
-        <main id="chat-container" class="flex-1 overflow-y-auto px-4 pt-[60px] pb-[80px] scroll-smooth no-scrollbar">
+        <!-- Chat Container: Uses dynamic top padding -->
+        <main id="chat-container" class="flex-1 overflow-y-auto px-4 pb-[80px] scroll-smooth no-scrollbar header-offset-top">
             <div class="h-4"></div>
             <div id="messages-list" class="flex flex-col space-y-2 pb-2"></div>
             
@@ -272,7 +291,7 @@
             <div id="bottom-anchor" class="h-2"></div>
         </main>
 
-        <!-- Input Bar -->
+        <!-- Input Bar: Uses bottom safe area padding -->
         <footer class="fixed bottom-0 w-full z-30 bg-[#161618]/90 backdrop-blur-xl border-t border-white/5 pb-safe-bottom">
             <div class="flex items-end gap-3 px-4 py-3 max-w-2xl mx-auto">
                 <button class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-surfaceHighlight text-gray-400 active:text-white transition-colors">
