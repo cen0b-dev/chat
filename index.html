@@ -1329,6 +1329,7 @@
                     const bubble = UI.renderMsg('model', reply, true, aiMsg, prevRole);
                     await UI.decryptStream(bubble, reply);
                     
+                    // Show online immediately to bridge gap
                     Status.setOnline();
 
                     if (!signal.aborted) {
@@ -1346,7 +1347,9 @@
 
             scheduleChainStep() {
                 if (State.followUpDepth >= 3 || State.stopFollowUps) return;
-                const delay = 2500 + Math.random() * 3000;
+                
+                // drastically reduced delay: 0.5s - 2s
+                const delay = 500 + Math.random() * 1500; 
                 const id = setTimeout(() => this.executeChainStep(), delay);
                 this.timers.push(id);
             },
@@ -1358,11 +1361,18 @@
                 const signal = this.abortCtrl.signal;
 
                 try {
-                    Status.setOnline();
+                    Status.setOnline(); // Show activity
 
-                    const context = State.history.slice(-12).map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
+                    // Mirror the exact context logic from fetchReply so AI sees its own previous msg correctly
+                    const context = State.history.slice(-12).map(m => {
+                        let content = m.text;
+                        if(m.text.startsWith('![Image]')) content = m.text.split('\n\n')[1] || "Image Attachment";
+                        if (m.replyTo) content = `[Replying to: "${m.replyTo.text}"]\n\n${content}`;
+                        return { role: m.role === 'user' ? 'user' : 'model', parts: [{ text: content }] };
+                    });
                     
-                    const followUpPrompt = `[SYSTEM: You just sent a message. In a natural text conversation, would you send a short follow-up now (correction, joke, split thought, or "double text")? Reply ||NO|| or the text.]`;
+                    // More aggressive prompt
+                    const followUpPrompt = `[SYSTEM: You just sent the message above. In a realistic chat, would you add a quick follow-up (e.g. a "double text", a joke, or a correction)? If YES, reply with the text. If NO, reply ||NO||.]`;
                     
                     const res = await this.fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
                         method: 'POST',
@@ -1403,8 +1413,7 @@
                     if(!signal.aborted) this.scheduleChainStep();
 
                 } catch (e) {
-                    // FIX: Check for both AbortError name and 'Aborted' message to prevent race condition locking
-                    if(e.name !== 'AbortError' && e.message !== 'Aborted') State.stopFollowUps = true;
+                    if(e.name !== 'AbortError') State.stopFollowUps = true;
                 }
             }
         };
