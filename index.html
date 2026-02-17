@@ -318,7 +318,6 @@
             backdrop-filter: blur(10px);
             border-top: 1px solid rgba(255,255,255,0.1);
             padding: 8px 16px;
-            display: flex;
             align-items: center;
             justify-content: space-between;
             font-size: 12px;
@@ -326,10 +325,10 @@
             transform: translateY(100%);
             transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
             position: absolute;
-            bottom: 100%; /* Sits exactly on top of footer */
+            bottom: 100%;
             left: 0; right: 0;
             z-index: 25;
-            display: none; /* JS toggles flex/none */
+            display: none;
         }
         
         #reply-bar.active {
@@ -381,6 +380,44 @@
             bottom: calc(70px + env(safe-area-inset-bottom));
         }
 
+        /* --- Offline / Away Message Banner --- */
+        .away-separator {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px 0 8px;
+            gap: 8px;
+        }
+        .away-separator::before,
+        .away-separator::after {
+            content: '';
+            flex: 1;
+            height: 0.5px;
+            background: rgba(255,255,255,0.08);
+        }
+        .away-pill {
+            background: rgba(209,78,66,0.12);
+            border: 0.5px solid rgba(209,78,66,0.3);
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+            color: rgba(209,78,66,0.8);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            white-space: nowrap;
+        }
+
+        /* Offline message - plain render with subtle entrance */
+        .msg-offline {
+            opacity: 0;
+            animation: offlineEnter 0.5s ease-out 0.2s forwards;
+        }
+        @keyframes offlineEnter {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
         .typing-dot {
             width: 6px; height: 6px;
             background-color: #AEAEB2;
@@ -423,7 +460,7 @@
             <div class="w-full space-y-4">
                 <div class="bg-white/5 border border-white/10 rounded-2xl px-4 py-1 flex items-center">
                     <i class="ph ph-lock-key text-gray-500 mr-3"></i>
-                    <input type="password" id="login-pass" class="w-full bg-transparent text-center text-white py-3 focus:outline-none placeholder-gray-700 font-mono text-lg tracking-[0.3em]" placeholder="••••••" inputmode="numeric">
+                    <input type="password" id="login-pass" class="w-full bg-transparent text-center text-white py-3 focus:outline-none placeholder-gray-700 font-mono text-lg tracking-[0.3em]" placeholder="••••••" inputmode="numeric" onkeydown="if(event.key==='Enter')Auth.login()">
                 </div>
                 <button onclick="Auth.login()" class="w-full py-4 bg-primary text-white rounded-2xl font-semibold active:scale-[0.98] transition-all text-sm uppercase tracking-wider">Authenticate</button>
             </div>
@@ -633,36 +670,59 @@
         };
 
         const UI = {
-            els: {
-                msgList: document.getElementById('messages-list'),
-                scroll: document.getElementById('drag-wrapper'),
-                input: document.getElementById('message-input'),
-                search: document.getElementById('search-bar-container'),
-                replyBar: document.getElementById('reply-bar'),
-                replyPreview: document.getElementById('reply-text-preview')
+            _els: null,
+            get els() {
+                if (!this._els) {
+                    this._els = {
+                        msgList: document.getElementById('messages-list'),
+                        scroll: document.getElementById('drag-wrapper'),
+                        input: document.getElementById('message-input'),
+                        search: document.getElementById('search-bar-container'),
+                        replyBar: document.getElementById('reply-bar'),
+                        replyPreview: document.getElementById('reply-text-preview')
+                    };
+                }
+                return this._els;
             },
 
             haptic(type = 'light') {
                 if (!navigator.vibrate) return;
-                if (type === 'light') navigator.vibrate(5);
-                if (type === 'medium') navigator.vibrate(15);
-                if (type === 'heavy') navigator.vibrate([15, 30, 15]);
-                if (type === 'tick') navigator.vibrate(2);
+                switch(type) {
+                    case 'light':  navigator.vibrate(5); break;
+                    case 'medium': navigator.vibrate(15); break;
+                    case 'heavy':  navigator.vibrate([15, 30, 15]); break;
+                    case 'tick':   navigator.vibrate(2); break;
+                }
             },
 
             showApp() {
                 document.getElementById('login-screen').style.opacity = '0';
-                setTimeout(() => {
+
+                // Race the inbox check against a 4s cap — it started at login tap,
+                // so most of the API call happens during the fade animation
+                const inboxReady = Auth._inboxPromise
+                    ? Promise.race([
+                        Auth._inboxPromise,
+                        new Promise(r => setTimeout(r, 4000))
+                      ])
+                    : Promise.resolve();
+
+                inboxReady.then(() => {
                     document.getElementById('login-screen').classList.add('hidden');
                     document.getElementById('app-interface').classList.remove('hidden');
+
                     this.refresh();
                     this.initSapperGesture();
                     this.initDragToReveal();
                     this.initPrivacyToggle();
                     this.initAvatarStealth();
-                    
                     document.getElementById('sapper-pill').classList.toggle('hidden', !State.config.sapperMode);
-                }, 700);
+
+                    const hasOffline = State.history.some(m => m.offline);
+                    if (hasOffline) {
+                        setTimeout(() => Sound.offlineArrive(), 400);
+                    }
+                });
             },
 
             initAvatarStealth() {
@@ -830,23 +890,43 @@
                 const wrapper = document.getElementById('drag-wrapper');
                 const list = document.getElementById('messages-list');
                 let startX = 0;
+                let isDraggingLeft = false;
+                let cachedStamps = null;
 
-                wrapper.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive: true});
+                const getStamps = () => {
+                    if (!cachedStamps) cachedStamps = list.querySelectorAll('.timestamp-reveal');
+                    return cachedStamps;
+                };
+
+                // Invalidate cache when new messages are added
+                const observer = new MutationObserver(() => { cachedStamps = null; });
+                observer.observe(list, { childList: true, subtree: false });
+
+                wrapper.addEventListener('touchstart', e => {
+                    startX = e.touches[0].clientX;
+                    isDraggingLeft = false;
+                }, {passive: true});
 
                 wrapper.addEventListener('touchmove', e => {
-                    const currentX = e.touches[0].clientX;
-                    const diff = currentX - startX;
-                    if (diff < -10) { 
-                        const offset = Math.min(Math.abs(diff) * 0.6, 85); 
+                    const diff = e.touches[0].clientX - startX;
+                    if (diff < -10) {
+                        isDraggingLeft = true;
+                        const offset = Math.min(Math.abs(diff) * 0.6, 85);
                         list.style.transform = `translateX(-${offset}px)`;
                         const opacity = Math.min(offset / 60, 1);
-                        document.querySelectorAll('.timestamp-reveal').forEach(el => el.style.opacity = opacity);
+                        getStamps().forEach(el => el.style.opacity = opacity);
+                    } else if (isDraggingLeft) {
+                        list.style.transform = '';
+                        getStamps().forEach(el => el.style.opacity = '0');
+                        isDraggingLeft = false;
                     }
                 }, {passive: true});
 
                 wrapper.addEventListener('touchend', () => {
-                    list.style.transform = `translateX(0)`;
-                    document.querySelectorAll('.timestamp-reveal').forEach(el => el.style.opacity = '0');
+                    if (!isDraggingLeft) return;
+                    isDraggingLeft = false;
+                    list.style.transform = '';
+                    getStamps().forEach(el => el.style.opacity = '0');
                 });
             },
 
@@ -868,10 +948,13 @@
 
             refresh() {
                 document.getElementById('contact-name').textContent = State.config.aiName;
+                this.renderHistory(State.history);
+            },
+
+            populateSettings() {
                 document.getElementById('api-key-input').value = State.config.apiKey || '';
                 document.getElementById('ai-name-input').value = State.config.aiName;
                 document.getElementById('system-prompt').value = State.config.systemPrompt;
-                this.renderHistory(State.history);
             },
 
             getDateLabel(ts) {
@@ -894,38 +977,53 @@
             },
 
             renderHistory(msgs) {
-                this.els.msgList.innerHTML = '';
                 const now = Date.now();
                 const validMsgs = msgs.filter(m => !m.expiresAt || m.expiresAt > now);
-                
-                let lastDateLabel = null;
 
+                // Build into a fragment first, then do a single DOM insertion
+                const fragment = document.createDocumentFragment();
+                const originalParent = this.els.msgList;
+                // Temporarily reparent to fragment so renderMsg/renderDateSeparator appends there
+                this.els.msgList = fragment;
+
+                let lastDateLabel = null;
                 validMsgs.forEach((msg, i) => {
                     const label = this.getDateLabel(msg.id);
                     if (label !== lastDateLabel) {
                         this.renderDateSeparator(label);
                         lastDateLabel = label;
                     }
-
-                    const prev = validMsgs[i-1];
-                    this.renderMsg(msg.role, msg.text, false, msg, prev?.role);
+                    const prev = validMsgs[i - 1];
+                    this.renderMsg(msg.role, msg.text, false, msg, prev?.role, true);
                 });
-                
+
+                this.els.msgList = originalParent;
+                this.els.msgList.innerHTML = '';
+                this.els.msgList.appendChild(fragment);
+
                 const lastMsg = validMsgs[validMsgs.length - 1];
-                if(lastMsg && lastMsg.role === 'user') {
-                    this.appendStatus(true);
+                if (lastMsg && lastMsg.role === 'user') {
+                    this.appendStatus(false);
                 }
 
                 this.scrollToBottom();
             },
 
-            renderMsg(role, text, animate = true, msgObj = null, prevRole = null) {
+            renderMsg(role, text, animate = true, msgObj = null, prevRole = null, skipScroll = false) {
                 if(role === 'system') {
                     const div = document.createElement('div');
                     div.className = 'text-[10px] text-center text-gray-600 uppercase tracking-widest py-6 animate-fade-in font-mono';
                     div.innerHTML = `<span class="bg-black px-2">${text}</span>`;
                     this.els.msgList.appendChild(div);
                     return;
+                }
+
+                // Offline message: render away separator + plain bubble (no decrypt stream)
+                if (msgObj?.offline && msgObj.awayLabel) {
+                    const sep = document.createElement('div');
+                    sep.className = 'away-separator';
+                    sep.innerHTML = `<span class="away-pill">while you were away · ${msgObj.awayLabel}</span>`;
+                    this.els.msgList.appendChild(sep);
                 }
 
                 const row = document.createElement('div');
@@ -945,26 +1043,38 @@
                     row.appendChild(swipeIcon);
                 }
 
+                const isOffline = !!msgObj?.offline;
                 const bubble = document.createElement('div');
-                bubble.className = `msg-bubble ${role === 'user' ? 'msg-user' : 'msg-ai'} ${animate ? 'animate-enter-message' : ''}`;
+                bubble.className = `msg-bubble ${role === 'user' ? 'msg-user' : 'msg-ai'} ${(animate && !isOffline) ? 'animate-enter-message' : ''} ${isOffline ? 'msg-offline' : ''}`;
                 
                 // Reply Block Injection
-                let contentHTML = '';
                 if(msgObj && msgObj.replyTo) {
-                    contentHTML += `
-                        <div class="reply-block" onclick="UI.scrollToMsg(${msgObj.replyTo.id})">
-                            <span class="reply-role">${msgObj.replyTo.role === 'user' ? 'You' : State.config.aiName}</span>
-                            <span class="reply-content">${msgObj.replyTo.text.replace(/!\[Image\]\(.*?\)/, '📷 Image')}</span>
-                        </div>
-                    `;
+                    // Use DOM construction to avoid XSS from user-generated text
+                    const replyDiv = document.createElement('div');
+                    replyDiv.className = 'reply-block';
+                    replyDiv.onclick = () => UI.scrollToMsg(msgObj.replyTo.id);
+
+                    const roleSpan = document.createElement('span');
+                    roleSpan.className = 'reply-role';
+                    roleSpan.textContent = msgObj.replyTo.role === 'user' ? 'You' : State.config.aiName;
+
+                    const contentSpan = document.createElement('span');
+                    contentSpan.className = 'reply-content';
+                    const replyText = msgObj.replyTo.text.startsWith('![Image]') ? '📷 Image' : msgObj.replyTo.text;
+                    contentSpan.textContent = replyText.substring(0, 80);
+
+                    replyDiv.appendChild(roleSpan);
+                    replyDiv.appendChild(contentSpan);
+                    bubble.appendChild(replyDiv);
                 }
 
-                if (animate && role === 'model') {
-                    // Start with reply block if exists, text injected by stream
-                    bubble.innerHTML = contentHTML; 
+                if (animate && role === 'model' && !isOffline) {
+                    // Reply block already appended above; text injected by decryptStream
                 } else {
-                    contentHTML += `<div class="prose prose-invert prose-sm">${marked.parse(text)}</div>`;
-                    bubble.innerHTML = contentHTML;
+                    const proseDiv = document.createElement('div');
+                    proseDiv.className = 'prose prose-invert prose-sm';
+                    proseDiv.innerHTML = marked.parse(text);
+                    bubble.appendChild(proseDiv);
                 }
 
                 const stamp = document.createElement('div');
@@ -978,70 +1088,81 @@
 
                 if (msgObj?.expiresAt) {
                     const delay = msgObj.expiresAt - Date.now();
-                    if(delay > 0) {
-                        setTimeout(() => {
+                    if (delay > 0) {
+                        const expiryId = setTimeout(() => {
                             row.classList.add('animate-fade-out');
                             setTimeout(() => { row.remove(); }, 800);
                         }, delay);
+                        // Track so clearHistory/stop can cancel it
+                        if (Chat?.timers) Chat.timers.push(expiryId);
                     }
                 }
 
-                this.scrollToBottom();
+                if (!skipScroll) this.scrollToBottom();
                 return bubble;
             },
 
             // --- Decryption Effect Stream ---
             async decryptStream(element, text) {
-                State.isStreaming = true; 
+                State.isStreaming = true;
                 element.classList.add('msg-stream', 'stream-cursor');
-                element.classList.remove('msg-ai'); 
+                element.classList.remove('msg-ai');
                 element.style.borderRadius = "20px 20px 20px 4px";
-                
-                // Preserve Reply Block if it exists
+
+                // Preserve Reply Block
                 const replyBlock = element.querySelector('.reply-block');
                 const replyHTML = replyBlock ? replyBlock.outerHTML : '';
-                
+
+                // Use a single text node for the live content to minimize reflows
+                const liveNode = document.createTextNode('');
+                element.innerHTML = replyHTML;
+                element.appendChild(liveNode);
+
                 const chars = text.split('');
                 const hackerChars = "!@#$%^&*()_+-=[]{}|;':\",./<>?";
                 let currentText = "";
+                let scrollPending = false;
 
-                // Stream loop
                 for (let i = 0; i < chars.length; i++) {
-                    if (!State.isStreaming) break; 
-                    
-                    // Add next real char
+                    if (!State.isStreaming) break;
+
                     currentText += chars[i];
-                    
-                    // Decryption Visual: Render clean text + 3 random chars at end
+
                     let randomSuffix = "";
-                    for(let k=0; k<3; k++) randomSuffix += hackerChars[Math.floor(Math.random() * hackerChars.length)];
-                    
-                    // Re-inject reply block every frame to keep it visible
-                    element.innerHTML = replyHTML + currentText + randomSuffix;
-                    
+                    for (let k = 0; k < 3; k++) randomSuffix += hackerChars[Math.floor(Math.random() * hackerChars.length)];
+
+                    liveNode.textContent = currentText + randomSuffix;
+
+                    if (i % 3 === 0 && !scrollPending) {
+                        scrollPending = true;
+                        requestAnimationFrame(() => {
+                            this.els.scroll.scrollTop = this.els.scroll.scrollHeight;
+                            scrollPending = false;
+                        });
+                    }
+
                     const delay = Math.random() < 0.1 ? 30 : (Math.random() < 0.5 ? 10 : 20);
-                    if (i % 3 === 0) this.scrollToBottom();
                     await new Promise(r => setTimeout(r, delay));
                 }
 
                 if (State.isStreaming) {
-                    await new Promise(r => setTimeout(r, 150)); 
+                    await new Promise(r => setTimeout(r, 150));
                     element.classList.remove('msg-stream', 'stream-cursor');
                     element.classList.add('msg-ai');
-                    // Final Clean Render
+                    // Final clean render with markdown
                     element.innerHTML = replyHTML + `<div class="prose prose-invert prose-sm animate-fade-in">${marked.parse(text)}</div>`;
                     this.scrollToBottom();
                     this.haptic('medium');
-                    State.isStreaming = false; 
+                    State.isStreaming = false;
                 } else {
-                    element.classList.remove('stream-cursor'); 
+                    element.classList.remove('stream-cursor');
                 }
             },
 
             appendStatus(animate = true) {
                 const existing = document.getElementById('status-label');
                 if(existing) existing.remove();
-                const rows = document.querySelectorAll('.msg-row');
+                const rows = this.els.msgList.querySelectorAll('.msg-row');
                 if(rows.length === 0) return;
                 const lastRow = rows[rows.length - 1];
                 if(!lastRow.querySelector('.msg-user')) return;
@@ -1051,9 +1172,7 @@
                 statusDiv.innerHTML = 'Delivered';
                 lastRow.after(statusDiv);
                 if(animate) {
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => statusDiv.classList.add('status-visible'));
-                    });
+                    requestAnimationFrame(() => statusDiv.classList.add('status-visible'));
                 } else {
                     statusDiv.classList.add('status-visible');
                 }
@@ -1080,7 +1199,7 @@
                 }
             },
 
-            toggleSettings() { this.haptic(); document.getElementById('settings-modal').classList.toggle('hidden'); },
+            toggleSettings() { this.haptic(); const modal = document.getElementById('settings-modal'); const isOpening = modal.classList.contains('hidden'); if(isOpening) this.populateSettings(); modal.classList.toggle('hidden'); },
 
             toggleSearch() {
                 this.haptic();
@@ -1091,7 +1210,8 @@
 
             handleSearch(query) {
                 if(!query) { this.renderHistory(State.history); return; }
-                const filtered = State.history.filter(m => m.text.toLowerCase().includes(query.toLowerCase()));
+                const q = query.toLowerCase();
+                const filtered = State.history.filter(m => m.text && m.text.toLowerCase().includes(q));
                 this.els.msgList.innerHTML = '';
                 filtered.forEach(msg => this.renderMsg(msg.role, msg.text, false, msg));
             },
@@ -1119,9 +1239,10 @@
                 this.haptic();
                 const t = document.getElementById('toast');
                 document.getElementById('toast-message').textContent = msg;
+                clearTimeout(this._toastTimer);
                 t.classList.remove('opacity-0', '-translate-y-4');
                 t.classList.add('opacity-100', 'translate-y-0');
-                setTimeout(() => { 
+                this._toastTimer = setTimeout(() => { 
                     t.classList.remove('opacity-100', 'translate-y-0');
                     t.classList.add('opacity-0', '-translate-y-4'); 
                 }, 3000);
@@ -1138,6 +1259,13 @@
             recognition: null,
             isRecording: false,
 
+            _setRecording(active) {
+                this.isRecording = active;
+                const btn = document.getElementById('mic-btn');
+                btn.classList.toggle('text-primary', active);
+                btn.classList.toggle('animate-mic-pulse', active);
+            },
+
             init() {
                 if ('webkitSpeechRecognition' in window) {
                     this.recognition = new webkitSpeechRecognition();
@@ -1146,27 +1274,23 @@
                     this.recognition.lang = 'en-US';
 
                     this.recognition.onstart = () => {
-                        this.isRecording = true;
-                        document.getElementById('mic-btn').classList.add('text-primary', 'animate-mic-pulse');
+                        this._setRecording(true);
                         UI.toast("Listening...");
                     };
 
-                    this.recognition.onend = () => {
-                        this.isRecording = false;
-                        document.getElementById('mic-btn').classList.remove('text-primary', 'animate-mic-pulse');
-                    };
+                    this.recognition.onend = () => this._setRecording(false);
 
                     this.recognition.onresult = (event) => {
                         const transcript = event.results[0][0].transcript;
-                        const input = document.getElementById('message-input');
+                        const input = UI.els.input;
                         input.value += (input.value ? ' ' : '') + transcript;
                         UI.autoResize(input);
                     };
 
                     this.recognition.onerror = (event) => {
                         UI.toast("Voice Error: " + event.error);
-                        this.isRecording = false;
-                        document.getElementById('mic-btn').classList.remove('text-primary', 'animate-mic-pulse');
+                        this._setRecording(false);
+                        try { this.recognition.stop(); } catch(e) {}
                     };
                 } else {
                     document.getElementById('mic-btn').style.display = 'none';
@@ -1185,14 +1309,38 @@
             abortCtrl: null,
             timers: [],
 
+            // Abortable delay — rejects with 'Aborted' if signal fires
+            _delay(ms, signal) {
+                return new Promise((resolve, reject) => {
+                    const id = setTimeout(resolve, ms);
+                    this.timers.push(id);
+                    signal?.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); }, { once: true });
+                });
+            },
+
+            getApiUrl() {
+                return `https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`;
+            },
+
+            buildContext(limit = 12) {
+                return State.history.slice(-limit).map(m => {
+                    let content = m.text;
+                    if (m.text.startsWith('![Image]')) content = m.text.split('\n\n')[1] || "Image Attachment";
+                    if (m.replyTo) content = `[Replying to: "${m.replyTo.text}"]\n\n${content}`;
+                    return { role: m.role === 'user' ? 'user' : 'model', parts: [{ text: content }] };
+                });
+            },
+
             getContextHint() {
                 const date = new Date();
                 const hours = date.getHours();
                 const day = date.toLocaleDateString('en-US', { weekday: 'long' });
-                let timeOfDay = "day";
-                if(hours < 5) timeOfDay = "late night/early morning";
-                else if(hours < 12) timeOfDay = "morning";
-                else if(hours > 20) timeOfDay = "late evening";
+                let timeOfDay = "afternoon";
+                if (hours < 5) timeOfDay = "late night/early morning";
+                else if (hours < 12) timeOfDay = "morning";
+                else if (hours < 17) timeOfDay = "afternoon";
+                else if (hours < 21) timeOfDay = "evening";
+                else timeOfDay = "late evening";
                 return `[SYSTEM CONTEXT: It is currently ${day}, ${timeOfDay} (${date.toLocaleTimeString()}). Keep it brief.]`;
             },
 
@@ -1215,20 +1363,30 @@
                 }
             },
 
+            clearHistory() {
+                if (!confirm("Clear all messages?")) return;
+                this.stop();
+                State.history = [];
+                State.save();
+                UI.renderHistory([]);
+                UI.haptic('medium');
+                UI.toast("Conversation Cleared");
+            },
+
             stop() {
-                if (this.abortCtrl) this.abortCtrl.abort();
-                this.abortCtrl = null;
+                if (this.abortCtrl) { this.abortCtrl.abort(); this.abortCtrl = null; }
                 this.timers.forEach(clearTimeout);
                 this.timers = [];
                 UI.showTyping(false);
                 Status.setTyping(false);
-                State.isStreaming = false; 
+                State.isStreaming = false;
+                State.followUpDepth = 0;
             },
 
             async send() {
+                Sound.unlock(); // ensure audio context running after user gesture
                 UI.haptic();
-                this.stop(); 
-                State.followUpDepth = 0;
+                this.stop();
                 State.stopFollowUps = false;
 
                 const input = UI.els.input;
@@ -1237,6 +1395,7 @@
                 if(!State.config.apiKey) return UI.toggleSettings();
 
                 input.value = ''; input.style.height = 'auto';
+                Sound.send();
                 
                 let displayText = txt;
                 let activeAttachment = State.attachment;
@@ -1245,7 +1404,6 @@
                     UI.clearAttachment(); 
                 }
 
-                // Store reply context separately from text
                 const replyContext = State.replyingTo ? { ...State.replyingTo } : null;
                 UI.cancelReply();
 
@@ -1253,12 +1411,12 @@
                     role: 'user', 
                     text: displayText, 
                     id: Date.now(), 
-                    replyTo: replyContext, // Store Context
+                    replyTo: replyContext,
                     expiresAt: State.config.sapperMode ? Date.now() + 60000 : null 
                 };
                 
-                const prevRole = State.history[State.history.length -1]?.role;
                 const lastMsg = State.history[State.history.length - 1];
+                const prevRole = lastMsg?.role;
                 if (!lastMsg || UI.getDateLabel(lastMsg.id) !== UI.getDateLabel(msgData.id)) {
                     UI.renderDateSeparator(UI.getDateLabel(msgData.id));
                 }
@@ -1270,83 +1428,165 @@
                 UI.appendStatus(true);
                 Status.setOnline();
 
-                this.timers.push(setTimeout(() => UI.updateStatusText('Delivered'), 600));
-                this.timers.push(setTimeout(() => this.fetchReply(activeAttachment), 1000));
+                // Delivered → (random delay 1.5–3.5s) → Seen
+                const deliveredDelay = 600;
+                const seenDelay = deliveredDelay + 1500 + Math.random() * 2000;
+
+                this.timers.push(setTimeout(() => UI.updateStatusText('Delivered'), deliveredDelay));
+                this.timers.push(setTimeout(() => {
+                    UI.updateStatusText('Seen');
+                    Sound.seen();
+                    Status.markSeen();
+                }, seenDelay));
+                this.timers.push(setTimeout(() => this.fetchReply(activeAttachment), seenDelay + 500));
             },
 
             async fetchReply(attachment) {
                 try {
                     this.abortCtrl = new AbortController();
                     const signal = this.abortCtrl.signal;
-                    UI.updateStatusText('Seen');
-                    
-                    await new Promise((resolve, reject) => {
-                        const id = setTimeout(resolve, 1500 + Math.random() * 1000);
-                        this.timers.push(id);
-                        signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
-                    });
 
-                    Status.setTyping(true); 
-                    UI.showTyping(true); 
+                    // Status already shows "Seen" — now wait before typing starts
+                    // This is the "reading + thinking" gap (2–5s)
+                    await this._delay(2000 + Math.random() * 3000, signal);
 
+                    Status.setTyping(true);
+                    UI.showTyping(true);
+
+                    // Build enhanced system prompt with "sent from" context clues
                     const contextHint = this.getContextHint();
-                    const sysPrompt = State.config.systemPrompt + " " + contextHint;
-                    
-                    // Inject Reply Context dynamically into Prompt
-                    const context = State.history.slice(-12).map(m => {
-                        let content = m.text;
-                        if(m.text.startsWith('![Image]')) content = m.text.split('\n\n')[1] || "Image Attachment";
-                        
-                        // Prepension logic
-                        if (m.replyTo) {
-                            content = `[Replying to: "${m.replyTo.text}"]\n\n${content}`;
-                        }
-                        
-                        return { role: m.role === 'user' ? 'user' : 'model', parts: [{ text: content }] };
-                    });
+                    const locationHint = this._getLocationHint();
+                    const sysPrompt = `${State.config.systemPrompt} ${contextHint} ${locationHint}
+TYPO RULE: Very rarely (roughly 1 in 12 messages), intentionally include a small realistic typo in your message. If you do, end your response with the delimiter ||TYPO|| on its own line. Normal replies have no delimiter.`;
 
-                    const res = await this.fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
+                    const context = this.buildContext(12);
+
+                    const res = await this.fetchWithRetry(this.getApiUrl(), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: context,
                             systemInstruction: { parts: [{ text: sysPrompt }] }
                         }),
-                        signal: signal 
+                        signal
                     });
 
                     const data = await res.json();
-                    const reply = data.candidates[0].content.parts[0].text;
-                    
-                    Status.setTyping(false); 
-                    UI.showTyping(false); 
-                    
-                    const aiMsg = { role: 'model', text: reply, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
-                    const prevRole = State.history[State.history.length -1]?.role;
-                    State.history.push(aiMsg);
-                    State.save();
-                    
-                    const bubble = UI.renderMsg('model', reply, true, aiMsg, prevRole);
-                    await UI.decryptStream(bubble, reply);
-                    
-                    // Show online immediately to bridge gap
-                    Status.setOnline();
+                    let reply = data.candidates[0].content.parts[0].text;
 
-                    if (!signal.aborted) {
-                         this.scheduleChainStep();
+                    // Check for typo flag
+                    let hasTypo = false;
+                    if (reply.includes('||TYPO||')) {
+                        hasTypo = true;
+                        reply = reply.replace(/\|\|TYPO\|\|/g, '').trim();
                     }
 
+                    // Typing restart simulation: show typing, pause, show again
+                    // Triggers ~30% of the time for realism
+                    if (Math.random() < 0.30) {
+                        await this._simulateTypingRestart(signal);
+                        if (signal.aborted) throw new Error('Aborted');
+                    }
+
+                    // Main typing delay — scaled to response length
+                    const typingTime = Math.min(Math.max(reply.length * 50, 1500), 12000);
+                    await this._delay(typingTime, signal);
+
+                    Status.setTyping(false);
+                    UI.showTyping(false);
+
+                    const aiMsg = { role: 'model', text: reply, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
+                    const prevRole = State.history[State.history.length - 1]?.role;
+                    State.history.push(aiMsg);
+                    State.save();
+
+                    const bubble = UI.renderMsg('model', reply, true, aiMsg, prevRole);
+                    await UI.decryptStream(bubble, reply);
+                    Sound.receive();
+                    UI.haptic('medium');
+
+                    Status.setOnline();
+
+                    // Schedule typo correction as a chain step
+                    if (hasTypo && !signal.aborted) {
+                        this._scheduleTypoCorrection(reply, signal);
+                        return; // don't also do normal chain step
+                    }
+
+                    if (!signal.aborted) this.scheduleChainStep();
+
                 } catch(e) {
+                    Status.setTyping(false);
+                    UI.showTyping(false);
                     if (e.message !== 'Aborted' && e.name !== 'AbortError') {
-                        Status.setTyping(false);
-                        UI.showTyping(false);
-                        UI.toast("Secure Relay Interrupted"); 
+                        UI.toast("Secure Relay Interrupted");
                     }
                 }
             },
 
+            async _simulateTypingRestart(signal) {
+                UI.showTyping(false);
+                await this._delay(1500 + Math.random() * 1000, signal);
+                UI.showTyping(true);
+            },
+
+            // Returns a contextual "sent from" hint based on time of day / day of week
+            _getLocationHint() {
+                const now = new Date();
+                const h = now.getHours();
+                const day = now.getDay();
+                const isWeekend = day === 0 || day === 6;
+                const hints = [];
+
+                if (h >= 6 && h < 9)   hints.push("(morning context: naturally reference waking up, coffee, getting ready if relevant)");
+                if (h >= 9 && h < 12 && !isWeekend) hints.push("(context: work/school morning, reference being busy if relevant)");
+                if (h >= 12 && h < 14) hints.push("(context: lunch break, mention it if relevant)");
+                if (h >= 14 && h < 18 && !isWeekend) hints.push("(context: mid-afternoon at work/school)");
+                if (h >= 18 && h < 20) hints.push("(context: evening, winding down, maybe just got home)");
+                if (h >= 20 && h < 23) hints.push("(context: late evening, relaxing)");
+                if (h >= 23 || h < 5)  hints.push("(context: late night/early hours, keep it brief and tired)");
+                if (isWeekend && h >= 10 && h < 14) hints.push("(it's the weekend, mention weekend vibes if natural)");
+
+                return hints[0] || '';
+            },
+
+            // Send a *correction follow-up shortly after the typo message
+            _scheduleTypoCorrection(originalText, signal) {
+                // Find a word to "correct" — pick a random word and add asterisk
+                const words = originalText.trim().split(/\s+/);
+                if (words.length === 0) { this.scheduleChainStep(); return; }
+                const wordIdx = Math.floor(Math.random() * Math.min(words.length, 6));
+                const corrected = words[wordIdx];
+                const correction = `*${corrected}`;
+
+                const delay = 1200 + Math.random() * 1800;
+                const id = setTimeout(async () => {
+                    if (signal.aborted) return;
+                    Status.setTyping(true);
+                    UI.showTyping(true);
+                    await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+                    Status.setTyping(false);
+                    UI.showTyping(false);
+
+                    const corrMsg = { role: 'model', text: correction, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
+                    const prevRole = State.history[State.history.length - 1]?.role;
+                    State.history.push(corrMsg);
+                    State.save();
+
+                    const bubble = UI.renderMsg('model', correction, true, corrMsg, prevRole);
+                    await UI.decryptStream(bubble, correction);
+                    Sound.receive();
+                    Status.setOnline();
+
+                    // Normal chain step after correction
+                    this.scheduleChainStep();
+                }, delay);
+                this.timers.push(id);
+            },
+
             scheduleChainStep() {
-                if (State.followUpDepth >= 3 || State.stopFollowUps) return;
+                // STRICT CHECK: Max 3 messages in chain (depth starts at 0, so 0, 1, 2)
+                if (State.followUpDepth >= 2 || State.stopFollowUps) return;
                 
                 // drastically reduced delay: 0.5s - 2s
                 const delay = 500 + Math.random() * 1500; 
@@ -1355,7 +1595,8 @@
             },
 
             async executeChainStep() {
-                if (State.followUpDepth >= 3 || State.stopFollowUps) return;
+                // STRICT CHECK again just in case
+                if (State.followUpDepth >= 2 || State.stopFollowUps) return;
 
                 this.abortCtrl = new AbortController();
                 const signal = this.abortCtrl.signal;
@@ -1363,18 +1604,21 @@
                 try {
                     Status.setOnline(); // Show activity
 
-                    // Mirror the exact context logic from fetchReply so AI sees its own previous msg correctly
-                    const context = State.history.slice(-12).map(m => {
-                        let content = m.text;
-                        if(m.text.startsWith('![Image]')) content = m.text.split('\n\n')[1] || "Image Attachment";
-                        if (m.replyTo) content = `[Replying to: "${m.replyTo.text}"]\n\n${content}`;
-                        return { role: m.role === 'user' ? 'user' : 'model', parts: [{ text: content }] };
-                    });
-                    
-                    // More aggressive prompt
-                    const followUpPrompt = `[SYSTEM: You just sent the message above. In a realistic chat, would you add a quick follow-up (e.g. a "double text", a joke, or a correction)? If YES, reply with the text. If NO, reply ||NO||.]`;
-                    
-                    const res = await this.fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
+                    const context = this.buildContext(12);
+
+                    // Get last AI message for prompt injection
+                    const lastAiMsg = State.history[State.history.length - 1];
+                    const lastAiText = lastAiMsg ? lastAiMsg.text : "";
+
+                    const followUpPrompt = `[SYSTEM: You are ${State.config.aiName}. You just sent: "${lastAiText}".
+The user has NOT replied yet. You may send one follow-up if it feels natural — like a real person who thought of something else to add, or is giving a real-time update.
+- Send a follow-up if: you have a new thought, update, or fragment that feels incomplete without it
+- Do NOT answer your own questions or repeat yourself
+- Do NOT send a follow-up just to fill silence
+- If nothing natural to add, reply exactly: ||NO||
+- If following up, write ONLY the message. No preamble.]`;
+
+                    const res = await this.fetchWithRetry(this.getApiUrl(), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ contents: [...context, { role: 'user', parts: [{ text: followUpPrompt }] }] }),
@@ -1392,12 +1636,10 @@
                     Status.setTyping(true);
                     UI.showTyping(true);
 
-                    await new Promise((resolve, reject) => {
-                         const typingDuration = Math.min(Math.max(text.length * 20, 1000), 4000); 
-                         const id = setTimeout(resolve, typingDuration);
-                         this.timers.push(id);
-                         signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
-                    });
+                    // Dynamic Typing Speed for Chain (shorter minimum)
+                    const typingTime = Math.min(Math.max(text.length * 40, 1000), 8000);
+
+                    await this._delay(typingTime, signal);
                     
                     Status.setTyping(false);
                     UI.showTyping(false);
@@ -1408,12 +1650,16 @@
                     
                     const bubble = UI.renderMsg('model', text, true, aiMsg, 'model'); 
                     await UI.decryptStream(bubble, text);
+                    Sound.receive();
                     
                     State.followUpDepth++;
                     if(!signal.aborted) this.scheduleChainStep();
 
                 } catch (e) {
-                    if(e.name !== 'AbortError') State.stopFollowUps = true;
+                    // Always clean up typing state; silently stop chain on any error
+                    Status.setTyping(false);
+                    UI.showTyping(false);
+                    State.stopFollowUps = true;
                 }
             }
         };
@@ -1425,41 +1671,265 @@
                 Status.startLoop();
             },
             login() {
+                if (this._logging) return;
+                this._logging = true;
                 UI.haptic();
+                Sound.unlock();
                 const input = document.getElementById('login-pass');
                 if(State.isFirstLoad || input.value === State.config.password) {
                     State.config.password = input.value;
                     State.save();
+                    Auth._inboxPromise = BackgroundInbox.check().catch(() => {});
                     UI.showApp();
                 } else {
                     input.value = ''; input.classList.add('border-red-500');
+                    this._logging = false;
                 }
-            }
+            },
+            _logging: false,
+            _inboxPromise: null
         };
 
         const Status = {
-            startLoop() { this.update(); setInterval(() => this.update(), 60000); },
+            _loopId: null,
+            _seenAt: null,
+            _isTyping: false,
+            _elText: null,
+            _elDot: null,
+
+            _getEls() {
+                if (!this._elText) this._elText = document.getElementById('connection-status');
+                if (!this._elDot) this._elDot = document.getElementById('status-dot');
+            },
+
+            startLoop() {
+                this.update();
+                this._loopId = setInterval(() => this.update(), 15000);
+            },
+
             setTyping(isTyping) {
-                const elText = document.getElementById('connection-status');
-                if(isTyping) {
-                    elText.textContent = "typing...";
+                this._isTyping = isTyping;
+                this._getEls();
+                if (isTyping) {
+                    this._elText.textContent = "typing...";
                 } else {
-                    elText.textContent = ""; 
+                    this._seenAt = null;
                     this.update();
                 }
             },
-            update() {
-                const diff = (Date.now() - State.config.lastActive) / 1000 / 60;
-                const elText = document.getElementById('connection-status');
-                const elDot = document.getElementById('status-dot');
-                
-                if(elText.textContent === "typing...") return;
 
-                if (diff < 5) { elText.textContent = "Online"; elDot.style.backgroundColor = "#34C759"; }
-                else if (diff < 20) { elText.textContent = "Idle"; elDot.style.backgroundColor = "#FFD60A"; }
-                else { elText.textContent = "Offline"; elDot.style.backgroundColor = "#8E8E93"; }
+            markSeen() {
+                this._seenAt = Date.now();
+                this._updateSeenAgo();
             },
-            setOnline() { State.config.lastActive = Date.now(); State.save(); this.update(); }
+
+            _updateSeenAgo() {
+                if (this._isTyping) return;
+                this._getEls();
+                if (!this._elText || !this._seenAt) return;
+                const diffMins = Math.floor((Date.now() - this._seenAt) / 60000);
+                if (diffMins < 1) this._elText.textContent = "Seen just now";
+                else if (diffMins === 1) this._elText.textContent = "Seen 1m ago";
+                else if (diffMins < 60) this._elText.textContent = `Seen ${diffMins}m ago`;
+                else this._elText.textContent = "Seen a while ago";
+            },
+
+            update() {
+                if (this._isTyping) return;
+                this._getEls();
+                if (!this._elText || !this._elDot) return;
+
+                if (this._seenAt) {
+                    this._updateSeenAgo();
+                    this._elDot.style.backgroundColor = "#FFD60A";
+                    return;
+                }
+
+                const diffMins = (Date.now() - State.config.lastActive) / 60000;
+
+                if (diffMins < 3) {
+                    this._elText.textContent = "Active now";
+                    this._elDot.style.backgroundColor = "#34C759";
+                } else if (diffMins < 8) {
+                    this._elText.textContent = "Active recently";
+                    this._elDot.style.backgroundColor = "#34C759";
+                } else if (diffMins < 25) {
+                    this._elText.textContent = "Idle";
+                    this._elDot.style.backgroundColor = "#FFD60A";
+                } else {
+                    this._elText.textContent = "Offline";
+                    this._elDot.style.backgroundColor = "#8E8E93";
+                }
+            },
+
+            setOnline() {
+                this._seenAt = null;
+                State.config.lastActive = Date.now();
+                State.save();
+                this.update();
+            }
+        };
+
+        // ─── Sound Engine ──────────────────────────────────────────────────────────
+        // Uses Web Audio API. On iOS the hardware mute switch silences it — correct behavior.
+        const Sound = {
+            ctx: null,
+
+            _getCtx() {
+                if (!this.ctx) {
+                    try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+                }
+                return this.ctx;
+            },
+
+            unlock() {
+                const ctx = this._getCtx();
+                if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+            },
+
+            _tone(freq, type, duration, vol) {
+                const ctx = this._getCtx();
+                if (!ctx) return;
+                try {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+                    gain.gain.setValueAtTime(0, ctx.currentTime);
+                    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.005);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+                    osc.start(ctx.currentTime);
+                    osc.stop(ctx.currentTime + duration + 0.01);
+                } catch(e) {}
+            },
+
+            // Incoming message — soft two-tone descend
+            receive() {
+                this._tone(1046, 'sine', 0.12, 0.16);
+                setTimeout(() => this._tone(880, 'sine', 0.18, 0.13), 90);
+            },
+
+            // Message sent
+            send() {
+                this._tone(1200, 'sine', 0.06, 0.11);
+            },
+
+            // "Seen" tick
+            seen() {
+                this._tone(900, 'sine', 0.05, 0.07);
+            },
+
+            // Offline arrival — two-tone ascending, slightly more prominent
+            offlineArrive() {
+                this._tone(880,  'sine', 0.14, 0.15);
+                setTimeout(() => this._tone(1100, 'sine', 0.2, 0.17), 130);
+            },
+        };
+
+        // ─── Background Inbox ──────────────────────────────────────────────────────
+        // On login: if AI was last to send AND enough time passed, generate offline msgs.
+        const BackgroundInbox = {
+            MIN_AWAY_MS: 5 * 60 * 1000,
+            MAX_MSGS: 2,
+            _lastCheckedMsgId: null, // id of last AI msg we already checked against
+
+            async check() {
+                if (!State.config.apiKey || State.history.length === 0) return;
+
+                // Find the last non-offline AI message — that's our reference point
+                let lastAiMsg = null;
+                for (let i = State.history.length - 1; i >= 0; i--) {
+                    if (State.history[i].role === 'model' && !State.history[i].offline) {
+                        lastAiMsg = State.history[i];
+                        break;
+                    }
+                }
+
+                // No AI message in history at all — nothing to follow up on
+                if (!lastAiMsg) return;
+
+                // Check if the user has already replied AFTER this AI message
+                // i.e. user sent a message more recently than the AI — AI hasn't responded yet,
+                // so we still allow offline msgs (Fox could have followed up before you came back)
+                const lastMsg = State.history[State.history.length - 1];
+                const lastUserMsg = State.history.slice().reverse().find(m => m.role === 'user' && !m.offline);
+
+                // Already ran a check for this exact AI message — don't re-run
+                if (this._lastCheckedMsgId === lastAiMsg.id) return;
+                this._lastCheckedMsgId = lastAiMsg.id;
+
+                // Use whichever is MORE recent: last AI msg or last user msg
+                // The away time is measured from whichever message was last in the convo
+                const referenceMsg = lastUserMsg && lastUserMsg.id > lastAiMsg.id ? lastUserMsg : lastAiMsg;
+                const awayMs = Date.now() - referenceMsg.id;
+                if (awayMs < this.MIN_AWAY_MS) return;
+
+                const awayMins = Math.round(awayMs / 60000);
+                const awayLabel = awayMins >= 60
+                    ? `${Math.floor(awayMins / 60)}h ${awayMins % 60}m`
+                    : `${awayMins} minutes`;
+
+                const context = Chat.buildContext(16);
+                const contextHint = Chat.getContextHint();
+
+                const userWasLast = lastUserMsg && lastUserMsg.id > lastAiMsg.id;
+                const lastMsgContext = userWasLast
+                    ? `The user's last message (which you haven't replied to yet): "${lastUserMsg.text}"\nYour last message before that: "${lastAiMsg.text}"`
+                    : `Your last message to them: "${lastAiMsg.text}"`;
+
+                const prompt = `[BACKGROUND CHECK — do not roleplay the user]
+You are ${State.config.aiName}. The user has been offline for ${awayLabel}.
+${lastMsgContext}
+
+Would you naturally send 1–2 messages while they were away? These should feel like real messages that arrived in their absence — organic, context-aware.
+
+Rules:
+- If nothing natural: reply exactly ||NONE||
+- 1 message: just the text
+- 2 messages: separate with ||NEXT||
+- Keep it casual, lowercase where natural
+- Do NOT greet them as if they just appeared
+- ${userWasLast ? 'You MAY respond to their message — you saw it while they stepped away' : 'Do NOT answer questions they asked — only continue YOUR thread'}
+- ${contextHint}`;
+
+                try {
+                    const res = await fetch(Chat.getApiUrl(), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [...context, { role: 'user', parts: [{ text: prompt }] }],
+                            systemInstruction: { parts: [{ text: State.config.systemPrompt }] }
+                        })
+                    });
+                    const data = await res.json();
+                    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
+
+                    if (!raw || raw.includes('||NONE||')) return;
+
+                    const parts = raw.split('||NEXT||').map(s => s.trim()).filter(Boolean).slice(0, this.MAX_MSGS);
+                    if (!parts.length) return;
+
+                    const now = Date.now();
+                    // Backdate: spread arrivals across the away window (not all at once)
+                    const offsets = parts.length === 2 ? [awayMs * 0.55, awayMs * 0.15] : [awayMs * 0.35];
+
+                    parts.forEach((text, i) => {
+                        State.history.push({
+                            role: 'model', text,
+                            id: now - offsets[i],
+                            offline: true,
+                            awayLabel: i === 0 ? awayLabel : null,
+                            expiresAt: State.config.sapperMode ? now + 60000 : null
+                        });
+                    });
+
+                    State.history.sort((a, b) => a.id - b.id);
+                    State.save();
+
+                } catch(e) { /* silent — offline check is best-effort */ }
+            }
         };
 
         const Settings = {
@@ -1469,6 +1939,7 @@
                     const data = await res.json();
                     if(data.models) {
                         const select = document.getElementById('model-select');
+                        const statusEl = document.getElementById('model-status');
                         select.innerHTML = '';
                         data.models.filter(m => m.supportedGenerationMethods.includes("generateContent")).forEach(m => {
                             const opt = document.createElement('option');
@@ -1476,33 +1947,42 @@
                             select.appendChild(opt);
                         });
                         select.value = State.config.model;
-                        document.getElementById('model-status').textContent = "Verified";
-                        document.getElementById('model-status').className = "text-[10px] text-green-500";
+                        statusEl.textContent = "Verified";
+                        statusEl.className = "text-[10px] text-green-500";
                     }
                 } catch(e) {}
             },
             handleKeyInput(val) { if(val.length > 20) this.fetchModels(val); },
             save() {
+                const prev = { ...State.config };
                 State.config.apiKey = document.getElementById('api-key-input').value.trim();
                 State.config.aiName = document.getElementById('ai-name-input').value.trim() || "f0xnet";
                 State.config.systemPrompt = document.getElementById('system-prompt').value.trim();
                 State.config.model = document.getElementById('model-select').value;
-                State.save(); UI.refresh(); UI.toggleSettings(); UI.toast("Settings Saved");
+                State.save();
+                // Only refresh contact name if it changed
+                if (prev.aiName !== State.config.aiName) {
+                    document.getElementById('contact-name').textContent = State.config.aiName;
+                }
+                UI.toggleSettings();
+                UI.toast("Settings Saved");
             },
             wipeData() { if(confirm("Wipe everything?")) State.reset(); }
         };
 
         const Boot = {
             async run() {
-                if(!State.isFirstLoad) { document.getElementById('boot-screen').remove(); Auth.init(); return; }
+                const bootEl = document.getElementById('boot-screen');
+                if(!bootEl) { Auth.init(); return; }
+                if(!State.isFirstLoad) { bootEl.remove(); Auth.init(); return; }
                 const logs = ["ESTABLISHING HANDSHAKE...", "ENCRYPTING STORAGE...", "DECRYPTING NODE...", "READY."];
                 for(let l of logs) {
                     const d = document.createElement('div'); d.textContent = `> ${l}`;
                     document.getElementById('boot-log').appendChild(d);
                     await new Promise(r => setTimeout(r, 400));
                 }
-                document.getElementById('boot-screen').style.opacity = '0';
-                setTimeout(() => { document.getElementById('boot-screen').remove(); Auth.init(); }, 500);
+                bootEl.style.opacity = '0';
+                setTimeout(() => { bootEl.remove(); Auth.init(); }, 500);
             }
         };
 
@@ -1510,5 +1990,3 @@
     </script>
 </body>
 </html>
-
-
