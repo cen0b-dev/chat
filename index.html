@@ -485,9 +485,9 @@
     </div>
 
     <script>
-const DEFAULTS = {
-            aiName: "The Fox",
-            systemPrompt: "You are Aiden Pearce (The Fox). We are communicating via a secure, encrypted messaging app. You are a vigilante hacker: paranoid, protective, and serious. Keep messages short, blunt, and functional. Use lowercase frequently. Do not sound robotic.",
+        const DEFAULTS = {
+            aiName: "f0xnet",
+            systemPrompt: "You are a secure contact. Keep messages concise and natural. Use lowercase occasionally. Don't sound robotic.",
             model: "gemini-1.5-flash",
             apiKey: "",
             password: "",
@@ -503,6 +503,8 @@ const DEFAULTS = {
             tapCount: 0,
             tapTimer: null,
             sapperTriggered: false,
+            followUpDepth: 0,
+            isStreaming: false, // Flag to control stream interrupt
 
             load() {
                 const c = localStorage.getItem('f0x_config_v8');
@@ -549,6 +551,9 @@ const DEFAULTS = {
                     
                     // Init Sapper Pill state
                     document.getElementById('sapper-pill').classList.toggle('hidden', !State.config.sapperMode);
+                    
+                    // Trigger Boot Check for "Unread" Messages
+                    if(State.config.apiKey) setTimeout(() => Chat.bootCheck(), 1000);
                 }, 700);
             },
 
@@ -786,6 +791,7 @@ const DEFAULTS = {
             },
 
             async streamText(element, text) {
+                State.isStreaming = true; // LOCK
                 element.classList.add('msg-stream', 'stream-cursor');
                 element.classList.remove('msg-ai'); // Temporarily remove standard styling for raw look
                 element.style.borderRadius = "20px 20px 20px 4px";
@@ -794,6 +800,7 @@ const DEFAULTS = {
                 const chars = text.split('');
                 
                 for (let i = 0; i < chars.length; i++) {
+                    if (!State.isStreaming) break; // INTERRUPT CHECK
                     element.textContent += chars[i];
                     
                     // Variable typing speed to feel human/networky
@@ -802,13 +809,19 @@ const DEFAULTS = {
                     await new Promise(r => setTimeout(r, delay));
                 }
 
-                // Compile Phase
-                await new Promise(r => setTimeout(r, 150)); // Brief pause at end of stream
-                element.classList.remove('msg-stream', 'stream-cursor');
-                element.classList.add('msg-ai');
-                element.innerHTML = `<div class="prose prose-invert prose-sm animate-fade-in">${marked.parse(text)}</div>`;
-                this.scrollToBottom();
-                this.haptic('medium');
+                // Compile Phase (only if finished naturally)
+                if (State.isStreaming) {
+                    await new Promise(r => setTimeout(r, 150)); 
+                    element.classList.remove('msg-stream', 'stream-cursor');
+                    element.classList.add('msg-ai');
+                    element.innerHTML = `<div class="prose prose-invert prose-sm animate-fade-in">${marked.parse(text)}</div>`;
+                    this.scrollToBottom();
+                    this.haptic('medium');
+                    State.isStreaming = false; // Release lock
+                } else {
+                    // If interrupted, leave as is (glitch aesthetic) or just clean class
+                    element.classList.remove('stream-cursor'); 
+                }
             },
 
             appendStatus(animate = true) {
@@ -909,6 +922,9 @@ const DEFAULTS = {
         };
 
         const Chat = {
+            abortCtrl: null,
+            timers: [],
+
             getContextHint() {
                 const date = new Date();
                 const hours = date.getHours();
@@ -920,8 +936,30 @@ const DEFAULTS = {
                 return `[SYSTEM CONTEXT: It is currently ${day}, ${timeOfDay} (${date.toLocaleTimeString()}). Keep it brief.]`;
             },
 
+            stop() {
+                // Kill Fetch
+                if (this.abortCtrl) this.abortCtrl.abort();
+                this.abortCtrl = null;
+                
+                // Kill Timers
+                this.timers.forEach(clearTimeout);
+                this.timers = [];
+                
+                // Kill UI Animations
+                UI.showTyping(false);
+                Status.setTyping(false);
+                
+                // Kill Text Stream Loop
+                State.isStreaming = false; 
+                State.followUpDepth = 0;
+            },
+
             async send() {
                 UI.haptic();
+                // --- INTERRUPT START ---
+                this.stop(); 
+                // --- INTERRUPT END ---
+
                 const input = UI.els.input;
                 const txt = input.value.trim();
                 if(!txt && !State.attachment) return;
@@ -935,33 +973,41 @@ const DEFAULTS = {
                 const msgData = { role: 'user', text: displayText, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
                 const prevRole = State.history[State.history.length -1]?.role;
                 
-                // Add Date Separator if needed before rendering user msg
                 const lastMsg = State.history[State.history.length - 1];
                 if (!lastMsg || UI.getDateLabel(lastMsg.id) !== UI.getDateLabel(msgData.id)) {
                     UI.renderDateSeparator(UI.getDateLabel(msgData.id));
                 }
 
                 State.history.push(msgData);
+                State.followUpDepth = 0;
                 State.save();
                 
                 UI.renderMsg('user', displayText, true, msgData, prevRole);
                 UI.appendStatus(true);
                 Status.setOnline();
 
-                setTimeout(() => UI.updateStatusText('Delivered'), 600);
-                setTimeout(() => this.fetchReply(activeAttachment), 1000);
+                // Store timer IDs so we can cancel them if user types again
+                this.timers.push(setTimeout(() => UI.updateStatusText('Delivered'), 600));
+                this.timers.push(setTimeout(() => this.fetchReply(activeAttachment), 1000));
             },
 
             async fetchReply(attachment) {
                 try {
+                    // Start new abort controller for this specific request
+                    this.abortCtrl = new AbortController();
+                    const signal = this.abortCtrl.signal;
+
                     UI.updateStatusText('Seen');
                     
-                    // Simulate reading time (1.5s base + random variance)
-                    // This creates a pause where the user sees "Seen" before "Typing..."
-                    await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
+                    // Cancellable delay
+                    await new Promise((resolve, reject) => {
+                        const id = setTimeout(resolve, 1500 + Math.random() * 1000);
+                        this.timers.push(id);
+                        signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
+                    });
 
-                    Status.setTyping(true); // Header Update
-                    UI.showTyping(true); // Bubble Animation
+                    Status.setTyping(true); 
+                    UI.showTyping(true); 
 
                     const contextHint = this.getContextHint();
                     const sysPrompt = State.config.systemPrompt + " " + contextHint;
@@ -976,43 +1022,156 @@ const DEFAULTS = {
                         body: JSON.stringify({
                             contents: context,
                             systemInstruction: { parts: [{ text: sysPrompt }] }
-                        })
+                        }),
+                        signal: signal // Attach signal
                     });
 
                     const data = await res.json();
                     const reply = data.candidates[0].content.parts[0].text;
                     
-                    Status.setTyping(false); // Reset header
-                    UI.showTyping(false); // Hide Bubble
+                    Status.setTyping(false); 
+                    UI.showTyping(false); 
                     
                     const aiMsg = { role: 'model', text: reply, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
                     const prevRole = State.history[State.history.length -1]?.role;
                     State.history.push(aiMsg);
                     State.save();
                     
-                    // Create the bubble first
                     const bubble = UI.renderMsg('model', reply, true, aiMsg, prevRole);
-                    // Stream the text into it
                     await UI.streamText(bubble, reply);
                     
                     Status.setOnline();
+
+                    if (!signal.aborted) {
+                         this.handleFollowUp();
+                    }
+
                 } catch(e) {
-                    Status.setTyping(false);
-                    UI.showTyping(false);
-                    UI.toast("Protocol Handshake Failed");
+                    if (e.message !== 'Aborted') {
+                        Status.setTyping(false);
+                        UI.showTyping(false);
+                        // Only toast real errors, not aborts
+                        if (e.name !== 'AbortError') UI.toast("Protocol Handshake Failed");
+                    }
                 }
             },
 
-            clearHistory() {
-                if(confirm("Permanently delete local logs?")) {
-                    State.history = [];
-                    State.save();
-                    UI.renderHistory([]);
-                    UI.toast("Memory Cleared");
-                    if(!document.getElementById('settings-modal').classList.contains('hidden')) {
-                        UI.toggleSettings();
+            async handleFollowUp() {
+                if (State.followUpDepth >= 2) { State.followUpDepth = 0; return; }
+                if(Math.random() < 0.2) return; 
+
+                // Create a local abort controller for this specific background task
+                // We use the main abortCtrl so Chat.stop() kills this too
+                if (this.abortCtrl) this.abortCtrl.abort(); 
+                this.abortCtrl = new AbortController();
+                const signal = this.abortCtrl.signal;
+
+                try {
+                    // Cancellable delay
+                    await new Promise((resolve, reject) => {
+                         const id = setTimeout(resolve, 2000 + Math.random() * 2000);
+                         this.timers.push(id);
+                         signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
+                    });
+
+                    const context = State.history.slice(-12).map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
+                    const followUpPrompt = `[SYSTEM: Do you have a burning desire to add a quick follow-up text (a joke, a correction, or an afterthought)? If NO, reply exactly with "||NO||". If YES, write ONLY the follow-up text.]`;
+                    
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [...context, { role: 'user', parts: [{ text: followUpPrompt }] }] }),
+                        signal: signal
+                    });
+
+                    const data = await res.json();
+                    const text = data.candidates[0].content.parts[0].text.trim();
+                    
+                    if (!text.includes("||NO||") && text.length > 0) {
+                        Status.setTyping(true);
+                        UI.showTyping(true);
+                        
+                        await new Promise((resolve, reject) => {
+                             const id = setTimeout(resolve, Math.min(text.length * 30, 2000));
+                             this.timers.push(id);
+                             signal.addEventListener('abort', () => { clearTimeout(id); reject(new Error('Aborted')); });
+                        });
+                        
+                        Status.setTyping(false);
+                        UI.showTyping(false);
+                        
+                        const aiMsg = { role: 'model', text: text, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
+                        State.history.push(aiMsg);
+                        State.save();
+                        
+                        const bubble = UI.renderMsg('model', text, true, aiMsg, 'model');
+                        await UI.streamText(bubble, text);
+                        
+                        State.followUpDepth++;
+                        if(!signal.aborted) this.handleFollowUp();
+                    } else {
+                        State.followUpDepth = 0;
                     }
+                } catch (e) {
+                    // Silent fail on abort or error
+                    State.followUpDepth = 0;
                 }
+            },
+
+            async bootCheck() {
+                // Called on login. Checks if AI wants to send an "unread" message.
+                // If history is empty, do nothing.
+                if(State.history.length === 0) return;
+                
+                // If last message was AI, use standard follow up logic
+                const lastMsg = State.history[State.history.length - 1];
+                if(lastMsg.role === 'model') {
+                    this.handleFollowUp();
+                    return;
+                }
+
+                // If last message was User, and it was recent (< 1 hour), AI might want to reply if it hasn't yet
+                // But normally fetchReply handles that. 
+                // This bootCheck is mostly for if the user closed the app *before* the AI replied.
+                // We'll treat it as a "Let me reply to that thing you said earlier"
+                
+                // Silent check
+                this.abortCtrl = new AbortController();
+                const signal = this.abortCtrl.signal;
+
+                try {
+                    const context = State.history.slice(-12).map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
+                    const bootPrompt = `[SYSTEM: The user just logged back in. The last message was from them. Do you want to reply to it now? Reply ||NO|| if it's too late or irrelevant. Reply with the text if yes.]`;
+                    
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${State.config.model}:generateContent?key=${State.config.apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [...context, { role: 'user', parts: [{ text: bootPrompt }] }] }),
+                        signal: signal
+                    });
+                     const data = await res.json();
+                     const text = data.candidates[0].content.parts[0].text.trim();
+
+                     if (!text.includes("||NO||") && text.length > 0) {
+                         // Act like a new message coming in
+                         setTimeout(() => {
+                             Status.setTyping(true);
+                             UI.showTyping(true);
+                         }, 500);
+
+                         setTimeout(async () => {
+                             Status.setTyping(false);
+                             UI.showTyping(false);
+                             const aiMsg = { role: 'model', text: text, id: Date.now(), expiresAt: State.config.sapperMode ? Date.now() + 60000 : null };
+                             State.history.push(aiMsg);
+                             State.save();
+                             const bubble = UI.renderMsg('model', text, true, aiMsg, 'model');
+                             await UI.streamText(bubble, text);
+                             UI.toast("New Message Received");
+                         }, 2500);
+                     }
+
+                } catch(e) {}
             }
         };
 
@@ -1110,3 +1269,5 @@ const DEFAULTS = {
     </script>
 </body>
 </html>
+
+
