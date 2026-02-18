@@ -148,17 +148,17 @@
             width: 100%;
             position: relative;
             align-items: flex-end;
-            margin-bottom: 24px; /* Default generous spacing */
-            touch-action: pan-y; /* Allow vertical scroll, handle horizontal in JS */
-            transition: transform 0.1s linear; /* Smooth drag */
+            margin-bottom: 24px;
+            touch-action: pan-y;
+            transition: transform 0.1s linear;
         }
         
         /* Message Bubbles */
         .msg-bubble {
             position: relative;
-            max-width: 85%; /* Slightly wider for code */
+            max-width: 85%;
             padding: 10px 16px;
-            font-size: 15px; /* Slightly smaller for density */
+            font-size: 15px;
             line-height: 1.5;
             letter-spacing: 0.01em;
             z-index: 2;
@@ -209,7 +209,7 @@
         .msg-stream {
             font-family: 'JetBrains Mono', 'Menlo', monospace;
             font-size: 13px;
-            color: #34C759; /* Hacker Green during stream */
+            color: #34C759;
             background-color: #1a1a1a;
             border: 1px solid #333;
         }
@@ -224,10 +224,9 @@
 
         /* Grouping Logic */
         .msg-group-continue { 
-            margin-top: -20px; /* Pull closer to previous */
+            margin-top: -20px;
         }
         
-        /* When continuing, soften the corners */
         .msg-group-continue .msg-user { border-top-right-radius: 6px; }
         .msg-group-continue .msg-ai { border-top-left-radius: 6px; }
 
@@ -255,7 +254,7 @@
         /* Timestamps (Hidden on Right) */
         .timestamp-reveal {
             position: absolute;
-            right: -80px; /* Hidden offscreen */
+            right: -80px;
             top: 0;
             bottom: 0;
             width: 70px;
@@ -277,18 +276,18 @@
             font-size: 11px;
             color: #8E8E93;
             padding-right: 4px;
-            margin-top: -20px; /* Pull it up under the bubble */
-            margin-bottom: 24px; /* Push next message down */
+            margin-top: -20px;
+            margin-bottom: 24px;
             font-weight: 500;
             opacity: 0;
-            height: 0; /* Animate height to push content */
+            height: 0;
             overflow: hidden;
             transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
         }
         
         .status-visible {
             opacity: 1;
-            height: 18px; /* Expand to show */
+            height: 18px;
             margin-top: -20px;
             margin-bottom: 12px;
         }
@@ -368,14 +367,12 @@
             position: relative;
         }
 
-        /* SVG Ring for filling */
         .progress-ring__circle {
             transition: stroke-dashoffset 0.1s;
             transform: rotate(-90deg);
             transform-origin: 50% 50%;
         }
 
-        /* Sapper Pill */
         .sapper-pill-position {
             bottom: calc(70px + env(safe-area-inset-bottom));
         }
@@ -408,7 +405,6 @@
             white-space: nowrap;
         }
 
-        /* Offline message - plain render with subtle entrance */
         .msg-offline {
             opacity: 0;
             animation: offlineEnter 0.5s ease-out 0.2s forwards;
@@ -427,6 +423,23 @@
         .typing-dot:nth-child(1) { animation-delay: -0.32s; }
         .typing-dot:nth-child(2) { animation-delay: -0.16s; }
         @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+        /* Login loading spinner */
+        #login-loading {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+        #login-loading.active { display: flex; }
+        .spin-ring {
+            width: 36px; height: 36px;
+            border: 3px solid rgba(209,78,66,0.2);
+            border-top-color: #D14E42;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="antialiased selection:bg-primary/30">
@@ -447,6 +460,25 @@
         </div>
     </div>
 
+    <!-- EDIT MODAL -->
+    <div id="edit-modal" class="hidden fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 transition-opacity duration-200">
+        <div class="bg-[#1C1C1E] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/10 animate-enter-message transform transition-all">
+            <div class="flex items-center justify-between p-4 border-b border-white/5 bg-white/5">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Edit Transmission</h3>
+                <button onclick="UI.closeEditModal()" class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 text-gray-400 transition-colors">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div class="p-4">
+                <textarea id="edit-textarea" class="w-full h-48 bg-[#0F0F0F] text-white p-4 rounded-xl resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm leading-relaxed" spellcheck="false"></textarea>
+            </div>
+            <div class="p-4 pt-0 flex gap-3">
+                <button onclick="UI.saveEdit(false)" class="flex-1 py-3 bg-surfaceHighlight border border-white/10 text-white rounded-xl text-xs font-bold uppercase tracking-wide hover:bg-white/5 transition-colors">Update Text</button>
+                <button onclick="UI.saveEdit(true)" class="flex-1 py-3 bg-primary text-white rounded-xl text-xs font-bold uppercase tracking-wide shadow-lg shadow-primary/20 active:scale-95 transition-transform">Update & Resend</button>
+            </div>
+        </div>
+    </div>
+
     <!-- LOGIN -->
     <div id="login-screen" class="hidden fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 transition-opacity duration-700">
         <div class="w-full max-w-sm flex flex-col items-center space-y-12 transform -translate-y-8">
@@ -457,12 +489,18 @@
                 <h1 class="text-2xl font-bold tracking-tight text-white">f0xnet</h1>
                 <p class="text-[11px] text-gray-500 font-medium tracking-widest uppercase">Secure Comms Relay</p>
             </div>
-            <div class="w-full space-y-4">
+            <!-- Login form / loading states -->
+            <div class="w-full space-y-4" id="login-form">
                 <div class="bg-white/5 border border-white/10 rounded-2xl px-4 py-1 flex items-center">
                     <i class="ph ph-lock-key text-gray-500 mr-3"></i>
                     <input type="password" id="login-pass" class="w-full bg-transparent text-center text-white py-3 focus:outline-none placeholder-gray-700 font-mono text-lg tracking-[0.3em]" placeholder="••••••" inputmode="numeric" onkeydown="if(event.key==='Enter')Auth.login()">
                 </div>
                 <button onclick="Auth.login()" class="w-full py-4 bg-primary text-white rounded-2xl font-semibold active:scale-[0.98] transition-all text-sm uppercase tracking-wider">Authenticate</button>
+            </div>
+            <!-- Loading state shown while inbox check runs -->
+            <div id="login-loading">
+                <div class="spin-ring"></div>
+                <p class="text-[11px] text-gray-500 font-mono tracking-widest uppercase">Syncing messages...</p>
             </div>
         </div>
     </div>
@@ -505,11 +543,8 @@
         <!-- SAPPER MODE UI (Instagram Style) -->
         <div class="sapper-ui-container" id="sapper-ui">
             <div class="sapper-ring">
-                <!-- SVG Circle for Progress & Track -->
                 <svg class="progress-ring" width="48" height="48">
-                     <!-- Track -->
                      <circle stroke="rgba(255,255,255,0.1)" stroke-width="4" fill="transparent" r="20" cx="24" cy="24" />
-                     <!-- Progress -->
                     <circle class="progress-ring__circle" stroke="#D14E42" stroke-width="4" fill="transparent" r="20" cx="24" cy="24" stroke-dasharray="125.6" stroke-dashoffset="125.6" id="sapper-progress"/>
                 </svg>
                 <i class="ph-fill ph-ghost text-white text-lg absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" id="sapper-icon"></i>
@@ -519,12 +554,9 @@
 
         <main id="chat-container" class="absolute inset-0 z-0 overflow-hidden top-spacing bottom-spacing bg-black">
             <div id="drag-wrapper" class="w-full h-full overflow-y-auto no-scrollbar relative touch-pan-y">
-                
-                <!-- Messages Container (Transform target) -->
                 <div id="messages-list" class="msg-container"></div>
                 
                 <div id="typing-indicator" class="hidden w-full px-4 flex mb-6 mt-2 ml-1">
-                    <!-- Adjusted height to h-[44px] and radius to rounded-[21px] to match message bubbles -->
                     <div class="bg-[#2C2C2E] rounded-[21px] px-4 h-[44px] flex gap-1 items-center">
                         <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
                     </div>
@@ -563,7 +595,6 @@
                     <i class="ph-bold ph-plus text-lg"></i>
                 </button>
 
-                <!-- Voice Dictation Button -->
                 <button id="mic-btn" onclick="Voice.toggle()" class="w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-full bg-surfaceHighlight text-gray-400 active:text-primary transition-all">
                     <i class="ph-bold ph-microphone text-lg"></i>
                 </button>
@@ -652,6 +683,7 @@
             stopFollowUps: false,
             isStreaming: false, 
             replyingTo: null,
+            currentEditId: null,
 
             load() {
                 const c = localStorage.getItem('f0x_config_v8');
@@ -679,7 +711,9 @@
                         input: document.getElementById('message-input'),
                         search: document.getElementById('search-bar-container'),
                         replyBar: document.getElementById('reply-bar'),
-                        replyPreview: document.getElementById('reply-text-preview')
+                        replyPreview: document.getElementById('reply-text-preview'),
+                        editModal: document.getElementById('edit-modal'),
+                        editTextarea: document.getElementById('edit-textarea')
                     };
                 }
                 return this._els;
@@ -697,17 +731,7 @@
 
             showApp() {
                 document.getElementById('login-screen').style.opacity = '0';
-
-                // Race the inbox check against a 4s cap — it started at login tap,
-                // so most of the API call happens during the fade animation
-                const inboxReady = Auth._inboxPromise
-                    ? Promise.race([
-                        Auth._inboxPromise,
-                        new Promise(r => setTimeout(r, 4000))
-                      ])
-                    : Promise.resolve();
-
-                inboxReady.then(() => {
+                setTimeout(() => {
                     document.getElementById('login-screen').classList.add('hidden');
                     document.getElementById('app-interface').classList.remove('hidden');
 
@@ -717,12 +741,23 @@
                     this.initPrivacyToggle();
                     this.initAvatarStealth();
                     document.getElementById('sapper-pill').classList.toggle('hidden', !State.config.sapperMode);
+                }, 300);
 
+                if (Auth._inboxPromise) {
+                    Auth._inboxPromise
+                        .then((hadNewOffline) => {
+                            this.refresh();
+                            if (hadNewOffline) {
+                                setTimeout(() => Sound.offlineArrive(), 400);
+                            }
+                        })
+                        .catch(() => {});
+                } else {
                     const hasOffline = State.history.some(m => m.offline);
                     if (hasOffline) {
                         setTimeout(() => Sound.offlineArrive(), 400);
                     }
-                });
+                }
             },
 
             initAvatarStealth() {
@@ -753,6 +788,96 @@
                 });
             },
 
+            initMultiTap(element, msgData) {
+                if (!msgData) return;
+                let taps = 0;
+                let timeout;
+
+                element.addEventListener('click', (e) => {
+                    taps++;
+                    clearTimeout(timeout);
+                    if (taps === 3) {
+                        taps = 0;
+                        this.openEditModal(msgData.id);
+                    } else {
+                        timeout = setTimeout(() => taps = 0, 350);
+                    }
+                });
+            },
+
+            openEditModal(id) {
+                const msg = State.history.find(m => m.id === id);
+                if (!msg) return;
+
+                this.haptic('medium');
+                State.currentEditId = id;
+                this.els.editTextarea.value = msg.text;
+                this.els.editModal.classList.remove('hidden');
+                setTimeout(() => this.els.editTextarea.focus(), 100);
+            },
+
+            closeEditModal() {
+                this.els.editModal.classList.add('hidden');
+                State.currentEditId = null;
+            },
+
+            saveEdit(resend = false) {
+                const id = State.currentEditId;
+                if (!id) return;
+                
+                const newText = this.els.editTextarea.value.trim();
+                const index = State.history.findIndex(m => m.id === id);
+                if (index === -1) return;
+
+                Chat.stop(); // INTERRUPT anything currently happening
+
+                if (!newText) {
+                    if(confirm("Delete this message?")) {
+                         State.history.splice(index, 1);
+                         State.save();
+                         this.refresh();
+                         this.closeEditModal();
+                         return;
+                    } else {
+                        return;
+                    }
+                }
+
+                this.haptic('medium');
+                
+                // Update text
+                State.history[index].text = newText;
+
+                if (resend) {
+                    // Branch/Rewind logic: Delete everything after this message
+                    State.history = State.history.slice(0, index + 1);
+                    State.save();
+                    this.refresh();
+                    this.closeEditModal();
+                    
+                    Status.setOnline();
+                    
+                    // Manually simulate the Delivered -> Seen -> Reply flow
+                    const seenDelay = 1000 + Math.random() * 1500;
+                    
+                    // We push to Chat.timers so they get cancelled if user interrupts
+                    Chat.timers.push(setTimeout(() => {
+                        UI.updateStatusText('Seen');
+                        Sound.seen();
+                        Status.markSeen();
+                    }, seenDelay));
+                    
+                    Chat.timers.push(setTimeout(() => {
+                        Chat.fetchReply();
+                    }, seenDelay + 500));
+                } else {
+                    // Just update content
+                    State.save();
+                    this.refresh();
+                    this.closeEditModal();
+                }
+            },
+
             toggleBlurMode() {
                 this.haptic('medium');
                 this.els.msgList.classList.toggle('blur-mode');
@@ -760,32 +885,25 @@
                 this.toast(isBlurred ? "Privacy Veil Active" : "Privacy Veil Lifted");
             },
 
-            // --- Swipe to Reply Logic ---
             initSwipeToReply(row, msgData) {
                 let startX = 0;
                 let currentTranslate = 0;
                 let isSwiping = false;
-                const threshold = 60; // drag distance to trigger
+                const threshold = 60;
 
                 row.addEventListener('touchstart', (e) => {
-                    // Ignore if interacting with inner elements or scrolling
                     if(e.target.closest('button')) return;
                     startX = e.touches[0].clientX;
-                    row.style.transition = 'none'; // remove transition for direct 1:1 movement
+                    row.style.transition = 'none';
                 }, {passive: true});
 
                 row.addEventListener('touchmove', (e) => {
                     const diff = e.touches[0].clientX - startX;
-                    // Only allow dragging Right (positive)
                     if (diff > 0 && diff < 150) { 
                         currentTranslate = diff;
                         isSwiping = true;
-                        
-                        // Resistance curve
                         const resisted = Math.pow(diff, 0.85); 
                         row.style.transform = `translateX(${resisted}px)`;
-
-                        // Show icon opacity based on drag
                         const icon = row.querySelector('.swipe-reply-icon');
                         if(icon) icon.style.opacity = Math.min(diff / threshold, 1);
                     }
@@ -898,7 +1016,6 @@
                     return cachedStamps;
                 };
 
-                // Invalidate cache when new messages are added
                 const observer = new MutationObserver(() => { cachedStamps = null; });
                 observer.observe(list, { childList: true, subtree: false });
 
@@ -980,10 +1097,8 @@
                 const now = Date.now();
                 const validMsgs = msgs.filter(m => !m.expiresAt || m.expiresAt > now);
 
-                // Build into a fragment first, then do a single DOM insertion
                 const fragment = document.createDocumentFragment();
                 const originalParent = this.els.msgList;
-                // Temporarily reparent to fragment so renderMsg/renderDateSeparator appends there
                 this.els.msgList = fragment;
 
                 let lastDateLabel = null;
@@ -1018,7 +1133,6 @@
                     return;
                 }
 
-                // Offline message: render away separator + plain bubble (no decrypt stream)
                 if (msgObj?.offline && msgObj.awayLabel) {
                     const sep = document.createElement('div');
                     sep.className = 'away-separator';
@@ -1030,12 +1144,10 @@
                 row.className = 'msg-row';
                 if(msgObj) {
                     row.id = `msg-${msgObj.id}`;
-                    // Only Init Swipe if NOT user role
                     if(msgObj.role !== 'user') this.initSwipeToReply(row, msgObj); 
                 }
                 if (prevRole === role) row.classList.add('msg-group-continue');
 
-                // Swipe Icon (Only if AI)
                 if(role !== 'user') {
                     const swipeIcon = document.createElement('div');
                     swipeIcon.className = 'swipe-reply-icon';
@@ -1047,9 +1159,9 @@
                 const bubble = document.createElement('div');
                 bubble.className = `msg-bubble ${role === 'user' ? 'msg-user' : 'msg-ai'} ${(animate && !isOffline) ? 'animate-enter-message' : ''} ${isOffline ? 'msg-offline' : ''}`;
                 
-                // Reply Block Injection
+                if (msgObj) this.initMultiTap(bubble, msgObj);
+
                 if(msgObj && msgObj.replyTo) {
-                    // Use DOM construction to avoid XSS from user-generated text
                     const replyDiv = document.createElement('div');
                     replyDiv.className = 'reply-block';
                     replyDiv.onclick = () => UI.scrollToMsg(msgObj.replyTo.id);
@@ -1069,7 +1181,7 @@
                 }
 
                 if (animate && role === 'model' && !isOffline) {
-                    // Reply block already appended above; text injected by decryptStream
+                    // text injected by decryptStream
                 } else {
                     const proseDiv = document.createElement('div');
                     proseDiv.className = 'prose prose-invert prose-sm';
@@ -1093,7 +1205,6 @@
                             row.classList.add('animate-fade-out');
                             setTimeout(() => { row.remove(); }, 800);
                         }, delay);
-                        // Track so clearHistory/stop can cancel it
                         if (Chat?.timers) Chat.timers.push(expiryId);
                     }
                 }
@@ -1102,18 +1213,15 @@
                 return bubble;
             },
 
-            // --- Decryption Effect Stream ---
             async decryptStream(element, text) {
                 State.isStreaming = true;
                 element.classList.add('msg-stream', 'stream-cursor');
                 element.classList.remove('msg-ai');
                 element.style.borderRadius = "20px 20px 20px 4px";
 
-                // Preserve Reply Block
                 const replyBlock = element.querySelector('.reply-block');
                 const replyHTML = replyBlock ? replyBlock.outerHTML : '';
 
-                // Use a single text node for the live content to minimize reflows
                 const liveNode = document.createTextNode('');
                 element.innerHTML = replyHTML;
                 element.appendChild(liveNode);
@@ -1149,7 +1257,6 @@
                     await new Promise(r => setTimeout(r, 150));
                     element.classList.remove('msg-stream', 'stream-cursor');
                     element.classList.add('msg-ai');
-                    // Final clean render with markdown
                     element.innerHTML = replyHTML + `<div class="prose prose-invert prose-sm animate-fade-in">${marked.parse(text)}</div>`;
                     this.scrollToBottom();
                     this.haptic('medium');
@@ -1309,7 +1416,6 @@
             abortCtrl: null,
             timers: [],
 
-            // Abortable delay — rejects with 'Aborted' if signal fires
             _delay(ms, signal) {
                 return new Promise((resolve, reject) => {
                     const id = setTimeout(resolve, ms);
@@ -1384,7 +1490,7 @@
             },
 
             async send() {
-                Sound.unlock(); // ensure audio context running after user gesture
+                Sound.unlock();
                 UI.haptic();
                 this.stop();
                 State.stopFollowUps = false;
@@ -1428,7 +1534,6 @@
                 UI.appendStatus(true);
                 Status.setOnline();
 
-                // Delivered → (random delay 1.5–3.5s) → Seen
                 const deliveredDelay = 600;
                 const seenDelay = deliveredDelay + 1500 + Math.random() * 2000;
 
@@ -1446,14 +1551,11 @@
                     this.abortCtrl = new AbortController();
                     const signal = this.abortCtrl.signal;
 
-                    // Status already shows "Seen" — now wait before typing starts
-                    // This is the "reading + thinking" gap (2–5s)
                     await this._delay(2000 + Math.random() * 3000, signal);
 
                     Status.setTyping(true);
                     UI.showTyping(true);
 
-                    // Build enhanced system prompt with "sent from" context clues
                     const contextHint = this.getContextHint();
                     const locationHint = this._getLocationHint();
                     const sysPrompt = `${State.config.systemPrompt} ${contextHint} ${locationHint}
@@ -1474,21 +1576,17 @@ TYPO RULE: Very rarely (roughly 1 in 12 messages), intentionally include a small
                     const data = await res.json();
                     let reply = data.candidates[0].content.parts[0].text;
 
-                    // Check for typo flag
                     let hasTypo = false;
                     if (reply.includes('||TYPO||')) {
                         hasTypo = true;
                         reply = reply.replace(/\|\|TYPO\|\|/g, '').trim();
                     }
 
-                    // Typing restart simulation: show typing, pause, show again
-                    // Triggers ~30% of the time for realism
                     if (Math.random() < 0.30) {
                         await this._simulateTypingRestart(signal);
                         if (signal.aborted) throw new Error('Aborted');
                     }
 
-                    // Main typing delay — scaled to response length
                     const typingTime = Math.min(Math.max(reply.length * 50, 1500), 12000);
                     await this._delay(typingTime, signal);
 
@@ -1507,10 +1605,9 @@ TYPO RULE: Very rarely (roughly 1 in 12 messages), intentionally include a small
 
                     Status.setOnline();
 
-                    // Schedule typo correction as a chain step
                     if (hasTypo && !signal.aborted) {
                         this._scheduleTypoCorrection(reply, signal);
-                        return; // don't also do normal chain step
+                        return;
                     }
 
                     if (!signal.aborted) this.scheduleChainStep();
@@ -1530,7 +1627,6 @@ TYPO RULE: Very rarely (roughly 1 in 12 messages), intentionally include a small
                 UI.showTyping(true);
             },
 
-            // Returns a contextual "sent from" hint based on time of day / day of week
             _getLocationHint() {
                 const now = new Date();
                 const h = now.getHours();
@@ -1550,9 +1646,7 @@ TYPO RULE: Very rarely (roughly 1 in 12 messages), intentionally include a small
                 return hints[0] || '';
             },
 
-            // Send a *correction follow-up shortly after the typo message
             _scheduleTypoCorrection(originalText, signal) {
-                // Find a word to "correct" — pick a random word and add asterisk
                 const words = originalText.trim().split(/\s+/);
                 if (words.length === 0) { this.scheduleChainStep(); return; }
                 const wordIdx = Math.floor(Math.random() * Math.min(words.length, 6));
@@ -1578,35 +1672,28 @@ TYPO RULE: Very rarely (roughly 1 in 12 messages), intentionally include a small
                     Sound.receive();
                     Status.setOnline();
 
-                    // Normal chain step after correction
                     this.scheduleChainStep();
                 }, delay);
                 this.timers.push(id);
             },
 
             scheduleChainStep() {
-                // STRICT CHECK: Max 3 messages in chain (depth starts at 0, so 0, 1, 2)
                 if (State.followUpDepth >= 2 || State.stopFollowUps) return;
-                
-                // drastically reduced delay: 0.5s - 2s
                 const delay = 500 + Math.random() * 1500; 
                 const id = setTimeout(() => this.executeChainStep(), delay);
                 this.timers.push(id);
             },
 
             async executeChainStep() {
-                // STRICT CHECK again just in case
                 if (State.followUpDepth >= 2 || State.stopFollowUps) return;
 
                 this.abortCtrl = new AbortController();
                 const signal = this.abortCtrl.signal;
 
                 try {
-                    Status.setOnline(); // Show activity
+                    Status.setOnline();
 
                     const context = this.buildContext(12);
-
-                    // Get last AI message for prompt injection
                     const lastAiMsg = State.history[State.history.length - 1];
                     const lastAiText = lastAiMsg ? lastAiMsg.text : "";
 
@@ -1636,9 +1723,7 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
                     Status.setTyping(true);
                     UI.showTyping(true);
 
-                    // Dynamic Typing Speed for Chain (shorter minimum)
                     const typingTime = Math.min(Math.max(text.length * 40, 1000), 8000);
-
                     await this._delay(typingTime, signal);
                     
                     Status.setTyping(false);
@@ -1656,7 +1741,6 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
                     if(!signal.aborted) this.scheduleChainStep();
 
                 } catch (e) {
-                    // Always clean up typing state; silently stop chain on any error
                     Status.setTyping(false);
                     UI.showTyping(false);
                     State.stopFollowUps = true;
@@ -1665,11 +1749,15 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
         };
 
         const Auth = {
+            _logging: false,
+            _inboxPromise: null,
+
             init() {
                 document.getElementById('login-screen').classList.remove('hidden');
                 if(State.config.apiKey) Settings.fetchModels(State.config.apiKey);
                 Status.startLoop();
             },
+
             login() {
                 if (this._logging) return;
                 this._logging = true;
@@ -1679,15 +1767,30 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
                 if(State.isFirstLoad || input.value === State.config.password) {
                     State.config.password = input.value;
                     State.save();
-                    Auth._inboxPromise = BackgroundInbox.check().catch(() => {});
-                    UI.showApp();
+
+                    document.getElementById('login-form').style.display = 'none';
+                    document.getElementById('login-loading').classList.add('active');
+
+                    this._inboxPromise = BackgroundInbox.check()
+                        .then(hadNew => !!hadNew)
+                        .catch(() => false)
+                        .finally(() => {
+                        });
+
+                    Promise.race([
+                        this._inboxPromise,
+                        new Promise(r => setTimeout(r, 5000))
+                    ]).then(() => {
+                        UI.showApp();
+                    });
+
                 } else {
-                    input.value = ''; input.classList.add('border-red-500');
+                    input.value = ''; 
+                    input.classList.add('border-red-500');
+                    setTimeout(() => input.classList.remove('border-red-500'), 1000);
                     this._logging = false;
                 }
-            },
-            _logging: false,
-            _inboxPromise: null
+            }
         };
 
         const Status = {
@@ -1770,8 +1873,6 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
             }
         };
 
-        // ─── Sound Engine ──────────────────────────────────────────────────────────
-        // Uses Web Audio API. On iOS the hardware mute switch silences it — correct behavior.
         const Sound = {
             ctx: null,
 
@@ -1805,23 +1906,19 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
                 } catch(e) {}
             },
 
-            // Incoming message — soft two-tone descend
             receive() {
                 this._tone(1046, 'sine', 0.12, 0.16);
                 setTimeout(() => this._tone(880, 'sine', 0.18, 0.13), 90);
             },
 
-            // Message sent
             send() {
                 this._tone(1200, 'sine', 0.06, 0.11);
             },
 
-            // "Seen" tick
             seen() {
                 this._tone(900, 'sine', 0.05, 0.07);
             },
 
-            // Offline arrival — two-tone ascending, slightly more prominent
             offlineArrive() {
                 this._tone(880,  'sine', 0.14, 0.15);
                 setTimeout(() => this._tone(1100, 'sine', 0.2, 0.17), 130);
@@ -1829,16 +1926,13 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
         };
 
         // ─── Background Inbox ──────────────────────────────────────────────────────
-        // On login: if AI was last to send AND enough time passed, generate offline msgs.
         const BackgroundInbox = {
             MIN_AWAY_MS: 5 * 60 * 1000,
             MAX_MSGS: 2,
-            _lastCheckedMsgId: null, // id of last AI msg we already checked against
 
             async check() {
-                if (!State.config.apiKey || State.history.length === 0) return;
+                if (!State.config.apiKey || State.history.length === 0) return false;
 
-                // Find the last non-offline AI message — that's our reference point
                 let lastAiMsg = null;
                 for (let i = State.history.length - 1; i >= 0; i--) {
                     if (State.history[i].role === 'model' && !State.history[i].offline) {
@@ -1846,25 +1940,16 @@ The user has NOT replied yet. You may send one follow-up if it feels natural —
                         break;
                     }
                 }
+                if (!lastAiMsg) return false;
 
-                // No AI message in history at all — nothing to follow up on
-                if (!lastAiMsg) return;
-
-                // Check if the user has already replied AFTER this AI message
-                // i.e. user sent a message more recently than the AI — AI hasn't responded yet,
-                // so we still allow offline msgs (Fox could have followed up before you came back)
-                const lastMsg = State.history[State.history.length - 1];
                 const lastUserMsg = State.history.slice().reverse().find(m => m.role === 'user' && !m.offline);
 
-                // Already ran a check for this exact AI message — don't re-run
-                if (this._lastCheckedMsgId === lastAiMsg.id) return;
-                this._lastCheckedMsgId = lastAiMsg.id;
-
-                // Use whichever is MORE recent: last AI msg or last user msg
-                // The away time is measured from whichever message was last in the convo
                 const referenceMsg = lastUserMsg && lastUserMsg.id > lastAiMsg.id ? lastUserMsg : lastAiMsg;
                 const awayMs = Date.now() - referenceMsg.id;
-                if (awayMs < this.MIN_AWAY_MS) return;
+                if (awayMs < this.MIN_AWAY_MS) return false;
+
+                const alreadyHasOffline = State.history.some(m => m.offline && m.id > referenceMsg.id);
+                if (alreadyHasOffline) return false;
 
                 const awayMins = Math.round(awayMs / 60000);
                 const awayLabel = awayMins >= 60
@@ -1906,13 +1991,12 @@ Rules:
                     const data = await res.json();
                     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
 
-                    if (!raw || raw.includes('||NONE||')) return;
+                    if (!raw || raw.includes('||NONE||')) return false;
 
                     const parts = raw.split('||NEXT||').map(s => s.trim()).filter(Boolean).slice(0, this.MAX_MSGS);
-                    if (!parts.length) return;
+                    if (!parts.length) return false;
 
                     const now = Date.now();
-                    // Backdate: spread arrivals across the away window (not all at once)
                     const offsets = parts.length === 2 ? [awayMs * 0.55, awayMs * 0.15] : [awayMs * 0.35];
 
                     parts.forEach((text, i) => {
@@ -1927,8 +2011,9 @@ Rules:
 
                     State.history.sort((a, b) => a.id - b.id);
                     State.save();
+                    return true; 
 
-                } catch(e) { /* silent — offline check is best-effort */ }
+                } catch(e) { return false; }
             }
         };
 
@@ -1960,7 +2045,6 @@ Rules:
                 State.config.systemPrompt = document.getElementById('system-prompt').value.trim();
                 State.config.model = document.getElementById('model-select').value;
                 State.save();
-                // Only refresh contact name if it changed
                 if (prev.aiName !== State.config.aiName) {
                     document.getElementById('contact-name').textContent = State.config.aiName;
                 }
@@ -1990,3 +2074,5 @@ Rules:
     </script>
 </body>
 </html>
+
+
