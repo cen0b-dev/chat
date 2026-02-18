@@ -382,7 +382,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            margin: 20px 0 8px;
+            margin: 24px 0 20px; /* Increased margins to prevent overlap */
             gap: 8px;
         }
         .away-separator::before,
@@ -1097,6 +1097,15 @@
                 const now = Date.now();
                 const validMsgs = msgs.filter(m => !m.expiresAt || m.expiresAt > now);
 
+                // Find the ID of the last message that has an awayLabel to only show the most recent one
+                let lastAwayId = null;
+                for(let i = validMsgs.length - 1; i >= 0; i--) {
+                    if(validMsgs[i].awayLabel) { 
+                        lastAwayId = validMsgs[i].id; 
+                        break; 
+                    }
+                }
+
                 const fragment = document.createDocumentFragment();
                 const originalParent = this.els.msgList;
                 this.els.msgList = fragment;
@@ -1109,7 +1118,15 @@
                         lastDateLabel = label;
                     }
                     const prev = validMsgs[i - 1];
-                    this.renderMsg(msg.role, msg.text, false, msg, prev?.role, true);
+
+                    // Clone message object to avoid mutating state
+                    // Delete awayLabel if it's not the most recent one
+                    const renderObj = { ...msg };
+                    if (msg.awayLabel && msg.id !== lastAwayId) {
+                        delete renderObj.awayLabel;
+                    }
+
+                    this.renderMsg(msg.role, msg.text, false, renderObj, prev?.role, true);
                 });
 
                 this.els.msgList = originalParent;
@@ -1133,11 +1150,16 @@
                     return;
                 }
 
+                let isContinuation = (prevRole === role);
+
                 if (msgObj?.offline && msgObj.awayLabel) {
                     const sep = document.createElement('div');
                     sep.className = 'away-separator';
                     sep.innerHTML = `<span class="away-pill">while you were away · ${msgObj.awayLabel}</span>`;
                     this.els.msgList.appendChild(sep);
+                    
+                    // If we inserted a separator, this message should NOT visually merge with the previous one
+                    isContinuation = false;
                 }
 
                 const row = document.createElement('div');
@@ -1146,7 +1168,9 @@
                     row.id = `msg-${msgObj.id}`;
                     if(msgObj.role !== 'user') this.initSwipeToReply(row, msgObj); 
                 }
-                if (prevRole === role) row.classList.add('msg-group-continue');
+                
+                // Only add continuation class if not broken by a separator
+                if (isContinuation) row.classList.add('msg-group-continue');
 
                 if(role !== 'user') {
                     const swipeIcon = document.createElement('div');
@@ -2074,5 +2098,4 @@ Rules:
     </script>
 </body>
 </html>
-
 
